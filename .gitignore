@@ -1,0 +1,12 @@
+.DS_Store
+.vscode/
+.vscode-server/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Logs / misc
+*.log

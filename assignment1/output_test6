@@ -1,0 +1,28 @@
+#include  <stdio.h>
+#include  <stdlib.h>
+
+abc ghi
+
+abc 
+
+abc 
+jkl
+mno
+
+abc jkl*/mno
+
+abc"def/*ghi*/jkl"mno
+
+abc'def/*ghi*/jkl'mno
+
+abc"def\"ghi"jkl
+
+abc'def\'ghi'jkl
+
+abc"def
+ghi"jkl
+
+abc'def
+ghi'jkl
+
+abc"def/*ghi*/jkl
