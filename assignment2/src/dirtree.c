@@ -145,13 +145,6 @@ static int dirent_compare(const void *a, const void *b)
   return strcmp(e1->d_name, e2->d_name);
 }
 
-// static int join_path(char *out, size_t outsz, const char *dir, const char *name) {
-//     if (dir[0] && dir[strlen(dir)-1] == '/')  // handle optional trailing '/'
-//         return snprintf(out, outsz, "%s%s", dir, name) < (int)outsz;    //write the formatted string into out
-//     else
-//         return snprintf(out, outsz, "%s/%s", dir, name) < (int)outsz;
-// }
-
 void process_recurse(const char* path, int depth) //recursive function for iterating through all directories
 {
   DIR *dir = opendir(path);                 //open directory
@@ -174,27 +167,12 @@ void process_recurse(const char* path, int depth) //recursive function for itera
   for(int i=0; i<cap; i++){                 //in order of sorted array, process that file and recurse through its children
     printf("%*s%s\n", depth * 2, "", list_directories[i].d_name);
 
-    // if (!join_path(full, sizeof full, path, name)) {   //check if path is too long
-    //     fprintf(stderr, "Path too long: %s/%s\n", path, name);
-    //     continue;
-    // }
-
-    // struct dirent *child;
-    // DIR *child_dir = opendir(list_directories[i].d_name);
-    // if ((child = get_next(child_dir)) != NULL){   //if child exists, recursively process that child
-    //   printf("child exists\n");             //delete later
-    //   if (depth < max_depth){
-    //     //join_path(full, sizeof full, path, child->d_name);
-    //     process_recurse(child->d_name, depth+1);
-    //   }
-    // }
-
-    if(list_directories[i].d_type == DT_DIR){
+    if(list_directories[i].d_type == DT_DIR){   //check if child exists
       //printf("child exists\n");
-      if(depth < max_depth){
-        char full[MAX_PATH_LEN];
+      if(depth < max_depth){                //check if depth exceeds max depth
+        char full[MAX_PATH_LEN];            //full: full path for the child directory
         snprintf(full, sizeof(full), "%s/%s", path, list_directories[i].d_name);
-        process_recurse(full, depth + 1);
+        process_recurse(full, depth + 1);   //recurse for the child directory
       }
     }
   }
@@ -274,16 +252,6 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
       if (directories[j])
           printf("Directory: %s\n", directories[j]);
     }
-
-    // DIR *dir = opendir(argv[i]); //dir: “handle” to a directory
-    // if (dir == NULL) {
-    //     perror("opendir");
-    //     exit(1);
-    // }
-    // struct dirent *e; //e: pointer to a single directory entry 
-    // while ((e = get_next(dir)) != NULL) {
-    //   printf("%s\n", e->d_name);
-    // }
 
     if (argv[i][0] == '-') {
       // format: "-<flag>"
