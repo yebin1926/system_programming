@@ -67,7 +67,6 @@ void panic(const char* msg, const char* format)
 
 
 /// @brief read next directory entry from open directory 'dir'. Ignores '.' and '..' entries
-///
 /// @param dir open DIR* stream
 /// @retval entry on success
 /// @retval NULL on error or if there are no more entries
@@ -86,43 +85,44 @@ struct dirent *get_next(DIR *dir) // A helper function to read the next entry (s
   return next;
 }
 
-// bool match(str, pattern){
-// 	while *str != ‘\0’{
-// 		if submatch(str, pattern){ // try partial matching
-// 			return TRUE
-//     }
-// 		str++;
-//   }
-// 	return FALSE
-// }
-
-// bool submatch(s, p){
-// 	while (*s != '\0' && *p != ‘\0’){
-// 		if (*p != ‘*’){
-// 			if (*(p + 1) == ‘*’){
-// 				//Save operand for repetition
-//       }
-// 			else if (*s != *p) return FALSE
-// 			else {
-//         s++;
-//         p++;
-//       }
-//     }
-// 		else{ // *p == ‘*’
-// 			if submatch(s, p + 1) // zero repetition
-// 				return TRUE
-// 			else 
-// 				//One or more repetition
-//         return FALSE
-//     }
-//   }
-// 	if (*p == ‘\0’) // pattern matched
-// 		return TRUE
+static int submatch(const char *s, const char *p){
+	while (*s != '\0' && *p != '\0'){
+		if (*p != '*'){
+			if (*(p + 1) == '*'){ //if next char is *, save the current operand for repetition
+        if(*(p+2) == '*') return 0; //if next next char is also *, return false
+        if (submatch(s, p+2)) return 1;
+        while(*s == *p){
+          s++;
+        }
+        p++;
+      }
+			else if (*s != *p) return 0; //if it's not * and it doesn't match, return false
+			else { //if it's not * but matches, move to check if the next char matches
+        s++;
+        p++;
+      }
+    }
+		else{ // *p == ‘*'
+			if (submatch(s, p + 1)) // zero repetition - checking whether the rest is also a match
+				return 1;
+			else 
+				//One or more repetition
+        return 0;
+    }
+  }
+	if (*p == '\0') // pattern matched
+		return 1;
 		
-// 	return FALSE	
-// }
+	return 0;
+}
 
-
+static int match(const char *str, const char *pattern){
+  if (*pattern == '*') return 0;            //if it starts with *, return false
+  do {
+      if (submatch(str, pattern)) return 1; //see if pattern matches anywhere of str
+  } while (*str++);
+  return 0;
+}
 
 /// @brief qsort comparator to sort directory entries. Sorted by name, directories first.
 /// @param a pointer to first entry
@@ -165,10 +165,9 @@ void process_recurse(const char* path, int depth) //recursive function for itera
   //char full[MAX_PATH_LEN];
 
   for(int i=0; i<cap; i++){                 //in order of sorted array, process that file and recurse through its children
-    printf("%*s%s\n", depth * 2, "", list_directories[i].d_name);
+    printf("%*s%s\n", (depth) * 2, "", list_directories[i].d_name);
 
     if(list_directories[i].d_type == DT_DIR){   //check if child exists
-      //printf("child exists\n");
       if(depth < max_depth){                //check if depth exceeds max depth
         char full[MAX_PATH_LEN];            //full: full path for the child directory
         snprintf(full, sizeof(full), "%s/%s", path, list_directories[i].d_name);
@@ -283,7 +282,8 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
       // anything else is recognized as a directory
       if (ndir < MAX_DIR) {
         directories[ndir++] = argv[i];
-        process_recurse(argv[i], 0);
+        printf("%s\n", argv[i]);
+        process_recurse(argv[i], 1);
       }
       else {
         fprintf(stderr, "Warning: maximum number of directories exceeded, ignoring '%s'.\n", argv[i]);
