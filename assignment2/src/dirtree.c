@@ -71,7 +71,7 @@ void panic(const char* msg, const char* format)
 /// @param dir open DIR* stream
 /// @retval entry on success
 /// @retval NULL on error or if there are no more entries
-struct dirent *get_next(DIR *dir)
+struct dirent *get_next(DIR *dir) // A helper function to read the next entry (skipping . and ..)
 {
   struct dirent *next;
   int ignore;
@@ -86,9 +86,45 @@ struct dirent *get_next(DIR *dir)
   return next;
 }
 
+// bool match(str, pattern){
+// 	while *str != ‘\0’{
+// 		if submatch(str, pattern){ // try partial matching
+// 			return TRUE
+//     }
+// 		str++;
+//   }
+// 	return FALSE
+// }
+
+// bool submatch(s, p){
+// 	while (*s != '\0' && *p != ‘\0’){
+// 		if (*p != ‘*’){
+// 			if (*(p + 1) == ‘*’){
+// 				//Save operand for repetition
+//       }
+// 			else if (*s != *p) return FALSE
+// 			else {
+//         s++;
+//         p++;
+//       }
+//     }
+// 		else{ // *p == ‘*’
+// 			if submatch(s, p + 1) // zero repetition
+// 				return TRUE
+// 			else 
+// 				//One or more repetition
+//         return FALSE
+//     }
+//   }
+// 	if (*p == ‘\0’) // pattern matched
+// 		return TRUE
+		
+// 	return FALSE	
+// }
+
+
 
 /// @brief qsort comparator to sort directory entries. Sorted by name, directories first.
-///
 /// @param a pointer to first entry
 /// @param b pointer to second entry
 /// @retval -1 if a<b
@@ -109,6 +145,63 @@ static int dirent_compare(const void *a, const void *b)
   return strcmp(e1->d_name, e2->d_name);
 }
 
+// static int join_path(char *out, size_t outsz, const char *dir, const char *name) {
+//     if (dir[0] && dir[strlen(dir)-1] == '/')  // handle optional trailing '/'
+//         return snprintf(out, outsz, "%s%s", dir, name) < (int)outsz;    //write the formatted string into out
+//     else
+//         return snprintf(out, outsz, "%s/%s", dir, name) < (int)outsz;
+// }
+
+void process_recurse(const char* path, int depth) //recursive function for iterating through all directories
+{
+  DIR *dir = opendir(path);                 //open directory
+  if(dir == NULL) return;                   //return if directory doesn't exist
+
+  struct dirent *list_directories = NULL;   //list of directories for that depth, for later sorting
+  int cap = 0;                              //cap: count of files in that depth
+  struct dirent *e;
+
+  while((e = get_next(dir)) != NULL){       //for each file in that depth, store file into list_directories then sort
+    cap++;
+    list_directories = realloc(list_directories, cap * sizeof(struct dirent)); //reallocate size of array if another file is found
+    list_directories[cap-1] = *e;
+    //printf("Entry: %s\n", e->d_name);
+  }
+  qsort(list_directories, cap, sizeof(struct dirent), dirent_compare);
+
+  //char full[MAX_PATH_LEN];
+
+  for(int i=0; i<cap; i++){                 //in order of sorted array, process that file and recurse through its children
+    printf("%*s%s\n", depth * 2, "", list_directories[i].d_name);
+
+    // if (!join_path(full, sizeof full, path, name)) {   //check if path is too long
+    //     fprintf(stderr, "Path too long: %s/%s\n", path, name);
+    //     continue;
+    // }
+
+    // struct dirent *child;
+    // DIR *child_dir = opendir(list_directories[i].d_name);
+    // if ((child = get_next(child_dir)) != NULL){   //if child exists, recursively process that child
+    //   printf("child exists\n");             //delete later
+    //   if (depth < max_depth){
+    //     //join_path(full, sizeof full, path, child->d_name);
+    //     process_recurse(child->d_name, depth+1);
+    //   }
+    // }
+
+    if(list_directories[i].d_type == DT_DIR){
+      //printf("child exists\n");
+      if(depth < max_depth){
+        char full[MAX_PATH_LEN];
+        snprintf(full, sizeof(full), "%s/%s", path, list_directories[i].d_name);
+        process_recurse(full, depth + 1);
+      }
+    }
+  }
+  closedir(dir);
+  free(list_directories);
+
+}
 
 /// @brief recursively process directory @a dn and print its tree
 ///
@@ -116,19 +209,21 @@ static int dirent_compare(const void *a, const void *b)
 /// @param pstr prefix string printed in front of each entry
 /// @param stats pointer to statistics
 /// @param flags output control flags (F_*)
+
 void process_dir(const char *dn, const char *pstr, struct summary *stats, unsigned int flags)
 {
   //
   // TODO
+  //process_recurse(dn, 0);
   //
 }
-
 
 /// @brief print program syntax and an optional error message. Aborts the program with EXIT_FAILURE
 ///
 /// @param argv0 command line argument 0 (executable)
 /// @param error optional error (format) string (printf format) or NULL
 /// @param ... parameter to the error format string
+
 void syntax(const char *argv0, const char *error, ...)
 {
   if (error) {
@@ -159,22 +254,37 @@ void syntax(const char *argv0, const char *error, ...)
 
 
 /// @brief program entry point
-int main(int argc, char *argv[])
+int main(int argc, char *argv[]) //argc : argument count, argv: array of strings (char*) holding the actual arguments.
 {
   //
   // default directory is the current directory (".")
   //
   const char CURDIR[] = ".";
-  const char *directories[MAX_DIR];
-  int   ndir = 0;
+  const char *directories[MAX_DIR]; //to-do list of paths the program will traverse.
+  int   ndir = 0; //counter that keeps track of how many directories are currently stored in that array
 
   struct summary tstat = { 0 }; // a structure to store the total statistics
-  unsigned int flags = 0;
-
+  unsigned int flags = 0; // the -d -f flags
   //
   // parse arguments
   //
   for (int i = 1; i < argc; i++) {
+
+    for (int j = 0; j < ndir; j++) { //delete later
+      if (directories[j])
+          printf("Directory: %s\n", directories[j]);
+    }
+
+    // DIR *dir = opendir(argv[i]); //dir: “handle” to a directory
+    // if (dir == NULL) {
+    //     perror("opendir");
+    //     exit(1);
+    // }
+    // struct dirent *e; //e: pointer to a single directory entry 
+    // while ((e = get_next(dir)) != NULL) {
+    //   printf("%s\n", e->d_name);
+    // }
+
     if (argv[i][0] == '-') {
       // format: "-<flag>"
       if (!strcmp(argv[i], "-d")) {
@@ -205,6 +315,7 @@ int main(int argc, char *argv[])
       // anything else is recognized as a directory
       if (ndir < MAX_DIR) {
         directories[ndir++] = argv[i];
+        process_recurse(argv[i], 0);
       }
       else {
         fprintf(stderr, "Warning: maximum number of directories exceeded, ignoring '%s'.\n", argv[i]);
@@ -214,7 +325,6 @@ int main(int argc, char *argv[])
 
   // if no directory was specified, use the current directory
   if (ndir == 0) directories[ndir++] = CURDIR;
-
 
   //
   // process each directory
