@@ -10,34 +10,29 @@
    ========================= */
 
 static int submatch(const char *s, const char *p){
-	while (*s != '\0' && *p != '\0'){
-		if (*p != '*'){
-			if (*(p + 1) == '*'){ //if next char is *, save the current operand for repetition
-        if(*(p+2) == '*') return 0; //if next next char is also *, return false
-        if (submatch(s, p+2)) return 1;
-        while(*s == *p){
-          s++;
-        }
-        p++;
-      }
-			else if (*s != *p) return 0; //if it's not * and it doesn't match, return false
-			else { //if it's not * but matches, move to check if the next char matches
+  while (*s != '\0' && *p != '\0'){
+    if(*p == '*') return 0;                 
+    if (*(p + 1) == '*'){ 
+      const char c = *p;                  // remember the preceding character
+      const char *rest = p + 2;           // skip over 'x*'
+
+      if (submatch(s, rest)) return 1;    // if zero repetition of p is a match, return true
+
+      while (*s == c) {                   // check if one or more repetition of c is a match
         s++;
-        p++;
+        if (submatch(s, rest)) return 1;
       }
+      return 0;
     }
-		else{ // *p == ‘*'
-			if (submatch(s, p + 1)) // zero repetition - checking whether the rest is also a match
-				return 1;
-			else 
-				//One or more repetition
-        return 0;
+    else if (*s != *p) return 0;          // if it's not a star case: must match literally, return 0
+    else {
+      s++;
+      p++;
     }
   }
-	if (*p == '\0') // pattern matched
-		return 1;
-		
-	return 0;
+  while (*(p + 1) == '*') p += 2;           // handling trailing x*
+
+  return (*p == '\0');
 }
 
 static int match(const char *str, const char *pattern){

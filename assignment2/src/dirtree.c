@@ -85,41 +85,118 @@ struct dirent *get_next(DIR *dir) // A helper function to read the next entry (s
   return next;
 }
 
-static int submatch(const char *s, const char *p){
-	while (*s != '\0' && *p != '\0'){
-		if (*p != '*'){
-			if (*(p + 1) == '*'){ //if next char is *, save the current operand for repetition
-        if(*(p+2) == '*') return 0; //if next next char is also *, return false
-        if (submatch(s, p+2)) return 1;
-        while(*s == *p){
-          s++;
+const char *find_close(const char *p) { //function that returns pointer to closing bracket )
+  int depth = 1;                      // start when seeing one '('
+  for (p = p + 1; *p; p++) {
+      if (*p == '(') depth++;
+      else if (*p == ')') {
+          depth--;
+          if (depth == 0) return p;   // if all ( are closed with ), return that pointer
+      }
+  }
+  return NULL;                        // no match
+}
+
+const char *check_repetition_match(const char *s, const char *p, int unit_len)
+{
+    const char *end_of_run = s;                     // end of run: how far we've scanned so far within s
+    int run_count = 0;                              // how many repetitions we've been through
+    while(1) {
+        int matches_count = 0;                      // counter for how many matches there were so far
+        const char *s_current = end_of_run;         // current position within s
+        const char *p_current = p;                  // current position within p
+        // Try to match one full copy of the unit
+        while (matches_count < unit_len && *s_current && *p_current && *s_current == *p_current) {  //if we haven't matched all of the pattern yet, but we still have remaining characters to match, continue
+          ++matches_count;
+          ++s_current;
+          ++p_current;
         }
-        p++;
-      }
-			else if (*s != *p) return 0; //if it's not * and it doesn't match, return false
-			else { //if it's not * but matches, move to check if the next char matches
-        s++;
-        p++;
-      }
+        if (matches_count == unit_len) {            //if all were matched, move end_of_run to check for the next copy
+          run_count++;
+          end_of_run = s_current;
+        } else {
+          if(matches_count != 0 && run_count == 0){
+            return NULL;
+          }
+          return end_of_run;                      //else, that was the maximum matches we could find, so return
+        }
     }
-		else{ // *p == ‘*'
-			if (submatch(s, p + 1)) // zero repetition - checking whether the rest is also a match
-				return 1;
-			else 
-				//One or more repetition
-        return 0;
+}
+
+static int submatch(const char *s, const char *p, int is_only_group){
+  // printf("Submatch for: %c, %c, %d\n", (char)*s, (char)*p, is_only_group);
+  while (*p != '\0'){     
+    if(*s == '\0') return 0;     
+    if (*(p + 1) == '*'){ 
+      const char c = *p;                  // remember the preceding character
+      const char *rest = p + 2;           // skip over 'x*'
+
+      if (submatch(s, rest, is_only_group)) return 1;    // if zero repetition of p is a match, return true
+
+      while (*s == c) {                   // check if one or more repetition of c is a match
+        s++;
+        if (submatch(s, rest, is_only_group)) return 1;
+      }
+      return 0;
+    }
+    else if (*p == '('){
+      //endless repetition here
+      const char* p_closed = find_close(p);        // find pointer to closing braket )
+      if (!p_closed) return 0; 
+      int len = (int)(p_closed - (p + 1));   // get size of substring
+      const char *after = p_closed + 1;            // first char after ')'
+
+      printf("p: %c\tp_closed: %c\tlen: %d\n", (char)*p, (char)*p_closed, len);
+      if (*after == '*'){
+        const char *end = check_repetition_match(s, p + 1, len); // consume (group)*
+        if(end == NULL) return 2;
+        return submatch(end, p_closed + 2, is_only_group);       // continue after the '*'
+      } else{
+        //what should i put here
+        int k = 0;
+        const char *ts = s, *tp = p + 1;               // compare inner literally
+        while (k < len && *ts && *tp && *ts == *tp) { k++; ts++; tp++; }
+        if (k != len) return 0;                        // inner didn't match once
+
+        // advance both: we consumed the group once
+        s = ts;                                        // move input past inner
+        p = after;                                     // move pattern past ')'
+        continue;                                      // continue the while-loop in submatch
+      }
+    } else if (*s != *p) return 0;          // if it's not a star case: must match literally, return 0
+    else {
+      s++;
+      p++;
     }
   }
-	if (*p == '\0') // pattern matched
-		return 1;
-		
-	return 0;
+  while (*p && p[1] == '*') p += 2;           // handling trailing x*
+
+  return (*p == '\0');
 }
 
 static int match(const char *str, const char *pattern){
   if (*pattern == '*') return 0;            //if it starts with *, return false
+  //check if the whole search keyword is a group
+  const char* p_closed = find_close(pattern);
+  const char *after = p_closed + 1;
+  int is_only_group = 0;
+  if(*pattern == '(' && *p_closed == ')' && *after == '*' && *(after+1) == '\0'){
+    is_only_group = 1;
+  }
+  if(is_only_group && *str == '\0'){
+    return 1;
+  }
   do {
-      if (submatch(str, pattern)) return 1; //see if pattern matches anywhere of str
+    int result = submatch(str, pattern, is_only_group);
+    switch(result){
+      case 1:
+        return 1;
+      case 2:
+        return 0;
+      default:
+        break;
+    }
+    // if (submatch(str, pattern, is_only_group)) return 1;
   } while (*str++);
   return 0;
 }
