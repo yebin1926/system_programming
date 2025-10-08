@@ -126,7 +126,21 @@ const char *check_repetition_match(const char *s, const char *p, int unit_len)
 static int submatch(const char *s, const char *p, int is_only_group){
   // printf("Submatch for: %c, %c, %d\n", (char)*s, (char)*p, is_only_group);
   while (*p != '\0'){     
-    if(*s == '\0') return 0;     
+    if (*s == '\0') {
+    // If pattern can be skipped (like (abc)* or x* repeated), treat as match
+    while (*p) {
+        if (*(p + 1) == '*') p += 2;
+        else if (*p == '(') {
+            const char *close = find_close(p);
+            if (close && *(close + 1) == '*')
+                p = close + 2; // skip (group)*
+            else
+                return 0;
+        } else
+            return 0;
+    }
+    return 1;
+}   
     if (*(p + 1) == '*'){ 
       const char c = *p;                  // remember the preceding character
       const char *rest = p + 2;           // skip over 'x*'
@@ -142,7 +156,7 @@ static int submatch(const char *s, const char *p, int is_only_group){
     else if (*p == '('){
       //endless repetition here
       const char* p_closed = find_close(p);        // find pointer to closing braket )
-      if (!p_closed) return 0; 
+      if (p_closed == NULL) return 0; 
       int len = (int)(p_closed - (p + 1));   // get size of substring
       const char *after = p_closed + 1;            // first char after ')'
 
@@ -150,6 +164,7 @@ static int submatch(const char *s, const char *p, int is_only_group){
       if (*after == '*'){
         const char *end = check_repetition_match(s, p + 1, len); // consume (group)*
         if(end == NULL) return 2;
+        if (*end && *(p_closed + 2) && *end != *(p_closed + 2)) return 0;
         return submatch(end, p_closed + 2, is_only_group);       // continue after the '*'
       } else{
         //what should i put here
@@ -178,10 +193,13 @@ static int match(const char *str, const char *pattern){
   if (*pattern == '*') return 0;            //if it starts with *, return false
   //check if the whole search keyword is a group
   const char* p_closed = find_close(pattern);
-  const char *after = p_closed + 1;
+  //const char *after = p_closed + 1;
   int is_only_group = 0;
-  if(*pattern == '(' && *p_closed == ')' && *after == '*' && *(after+1) == '\0'){
-    is_only_group = 1;
+  if (*pattern == '(') {
+    p_closed = find_close(pattern);        // may be NULL for unbalanced '('
+    if (p_closed && *(p_closed + 1) == '*' && *(p_closed + 2) == '\0') {
+      is_only_group = 1;
+    }
   }
   if(is_only_group && *str == '\0'){
     return 1;
