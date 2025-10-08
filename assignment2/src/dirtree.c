@@ -86,7 +86,7 @@ struct dirent *get_next(DIR *dir) // A helper function to read the next entry (s
 }
 
 const char *find_close(const char *p) { //function that returns pointer to closing bracket )
-  int depth = 1;                      // start when seeing one '('
+  int depth = 1;                        // start when seeing one '('
   for (p = p + 1; *p; p++) {
       if (*p == '(') depth++;
       else if (*p == ')') {
@@ -99,34 +99,31 @@ const char *find_close(const char *p) { //function that returns pointer to closi
 
 const char *check_repetition_match(const char *s, const char *p, int unit_len)
 {
-  printf("Check Repetition: %c, %c\n", *s, *p);
-    const char *end_of_run = s;                     // end of run: how far we've scanned so far within s
-    int run_count = 0;                              // how many repetitions we've been through
-    while(1) {
-        int matches_count = 0;                      // counter for how many matches there were so far
-        const char *s_current = end_of_run;         // current position within s
-        const char *p_current = p;                  // current position within p
-        // Try to match one full copy of the unit
-        while (matches_count < unit_len && *s_current && *p_current && (*s_current == *p_current || *p_current == '?')) {  //if we haven't matched all of the pattern yet, but we still have remaining characters to match, continue
-          ++matches_count;
-          ++s_current;
-          ++p_current;
-        }
-        if (matches_count == unit_len) {            //if all were matched, move end_of_run to check for the next copy
-          run_count++;
-          end_of_run = s_current;
-        } else {
-          if(matches_count != 0 && run_count == 0){
-            printf("***no match***\n");
-            return NULL;
-          }
-          return end_of_run;                      //else, that was the maximum matches we could find, so return
-        }
+  const char *end_of_run = s;                     // end of run: how far we've scanned so far within s
+  int run_count = 0;                              // how many repetitions we've been through
+  while(1) {
+    int matches_count = 0;                      // counter for how many matches there were so far
+    const char *s_current = end_of_run;         // current position within s
+    const char *p_current = p;                  // current position within p
+    // Try to match one full copy of the unit
+    while (matches_count < unit_len && *s_current && *p_current && (*s_current == *p_current || *p_current == '?')) {  //if we haven't matched all of the pattern yet, but we still have remaining characters to match, continue
+      ++matches_count;
+      ++s_current;
+      ++p_current;
+    }
+    if (matches_count == unit_len) {            //if all were matched, move end_of_run to check for the next copy
+      run_count++;
+      end_of_run = s_current;
+    } else {
+      if(matches_count != 0 && run_count == 0){
+        return NULL;
+      }
+      return end_of_run;                      //else, that was the maximum matches we could find, so return
+    }
     }
 }
 
 static int submatch(const char *s, const char *p, int is_only_group){
-  printf("Submatch for: %c, %c, %d\n", (char)*s, (char)*p, is_only_group);
   while (*p != '\0'){       
 
     if (*s == '\0') {
@@ -176,9 +173,7 @@ static int submatch(const char *s, const char *p, int is_only_group){
       }
       const char *after = p_closed + 1;            // first char after ')'
 
-      printf("Detected (, p: %c\tp_closed: %c\tlen: %d\n", (char)*p, (char)*p_closed, len);
       if (*after == '*'){
-        printf("Detected * after )\n");
         const char *end = check_repetition_match(s, p + 1, len); // consume (group)*
         if(end == NULL) return 2;
         const char next = *(p_closed + 2);
@@ -264,10 +259,67 @@ static int dirent_compare(const void *a, const void *b)
   return strcmp(e1->d_name, e2->d_name);
 }
 
-void process_recurse(const char* path, int depth) //recursive function for iterating through all directories
+// void process_recurse(const char* path, int depth) //recursive function for iterating through all directories
+// {
+//   DIR *dir = opendir(path);                 //open directory
+//   if(dir == NULL) return;                   //return if directory doesn't exist
+
+//   struct dirent *list_directories = NULL;   //list of directories for that depth, for later sorting
+//   int cap = 0;                              //cap: count of files in that depth
+//   struct dirent *e;
+
+//   while((e = get_next(dir)) != NULL){       //for each file in that depth, store file into list_directories then sort
+//     cap++;
+//     list_directories = realloc(list_directories, cap * sizeof(struct dirent)); //reallocate size of array if another file is found
+//     list_directories[cap-1] = *e;
+//     //printf("Entry: %s\n", e->d_name);
+//   }
+//   qsort(list_directories, cap, sizeof(struct dirent), dirent_compare);
+
+//   int any_match_in_this_dir = 0;
+
+//   for (int i = 0; i < cap; i++) {
+//     const char *name = list_directories[i].d_name;
+//     char full[MAX_PATH_LEN];
+//     snprintf(full, sizeof full, "%s/%s", path, name);
+
+//     if (list_directories[i].d_type == DT_DIR) {
+//       // Recurse first: does this child dir contain any match?
+//       int child_has_match = (depth < max_depth) ? process_recurse(full, depth + 1) : 0;
+
+//       if (child_has_match) {
+//         // Only print this directory entry if its subtree had a match
+//         printf("%*s%s\n", depth * 2, "", name);
+//         any_match_in_this_dir = 1;
+//       }
+//     } else {
+//       // File: print only if it matches the pattern (or print all when no filter)
+//       int file_matches = (pattern == NULL) ? 1 : match(name, pattern);
+//       if (file_matches) {
+//         printf("%*s%s\n", depth * 2, "", name);
+//         any_match_in_this_dir = 1;
+//       }
+//     }
+//   }
+
+//   closedir(dir);
+//   free(list_directories);
+//   return any_match_in_this_dir;
+
+// }
+
+/// @brief recursively process directory @a dn and print its tree
+///
+/// @param dn absolute or relative path string
+/// @param pstr prefix string printed in front of each entry
+/// @param stats pointer to statistics
+/// @param flags output control flags (F_*)
+
+static int process_dir(const char *path, int depth, const char *pstr, struct summary *stats, unsigned int flags)
 {
+  // TODO
   DIR *dir = opendir(path);                 //open directory
-  if(dir == NULL) return;                   //return if directory doesn't exist
+  if(dir == NULL) return -1;                 //return if directory doesn't exist
 
   struct dirent *list_directories = NULL;   //list of directories for that depth, for later sorting
   int cap = 0;                              //cap: count of files in that depth
@@ -281,38 +333,54 @@ void process_recurse(const char* path, int depth) //recursive function for itera
   }
   qsort(list_directories, cap, sizeof(struct dirent), dirent_compare);
 
-  //char full[MAX_PATH_LEN];
+  // ------ NO PSTR FILTER ------
+  if (pstr == NULL) {
+    for (int i = 0; i < cap; i++) {
+      printf("%*s%s\n", depth * 2, "", list_directories[i].d_name);
 
-  for(int i=0; i<cap; i++){                 //in order of sorted array, process that file and recurse through its children
-    printf("%*s%s\n", (depth) * 2, "", list_directories[i].d_name);
+      if (list_directories[i].d_type == DT_DIR && depth < max_depth) {
+          char full[MAX_PATH_LEN];
+          snprintf(full, sizeof full, "%s/%s", path, list_directories[i].d_name);
+          (void)process_dir(full, depth + 1, pstr, stats, flags); // keep printing children
+      }
+    }
+    closedir(dir);
+    free(list_directories);
+    return 1; // we printed entries in this subtree
+  }
 
-    if(list_directories[i].d_type == DT_DIR){   //check if child exists
-      if(depth < max_depth){                //check if depth exceeds max depth
-        char full[MAX_PATH_LEN];            //full: full path for the child directory
-        snprintf(full, sizeof(full), "%s/%s", path, list_directories[i].d_name);
-        process_recurse(full, depth + 1);   //recurse for the child directory
+  // ------ WITH PSTR FILTER ------
+  int any_match_in_this_dir = 0;
+
+  for (int i = 0; i < cap; i++) {
+    const char *name = list_directories[i].d_name;
+    char full[MAX_PATH_LEN];
+    snprintf(full, sizeof full, "%s/%s", path, name);
+
+    if (list_directories[i].d_type == DT_DIR) {
+      // Recurse first: does this child dir contain any match?
+      int child_has_match = (depth < max_depth) ? process_dir(full, depth + 1, pstr, stats, flags) : 0;
+
+      if (child_has_match) {
+        // Only print this directory entry if its subtree had a match
+        printf("%*s%s\n", depth * 2, "", name);
+        any_match_in_this_dir = 1;
+      }
+    } else {
+      // File: print only if it matches the pattern (or print all when no filter)
+      int file_matches = (pattern == NULL) ? 1 : match(name, pattern);
+      if (file_matches) {
+        printf("%*s%s\n", depth * 2, "", name);
+        any_match_in_this_dir = 1;
       }
     }
   }
+
   closedir(dir);
   free(list_directories);
-
+  return any_match_in_this_dir;
 }
 
-/// @brief recursively process directory @a dn and print its tree
-///
-/// @param dn absolute or relative path string
-/// @param pstr prefix string printed in front of each entry
-/// @param stats pointer to statistics
-/// @param flags output control flags (F_*)
-
-void process_dir(const char *dn, const char *pstr, struct summary *stats, unsigned int flags)
-{
-  //
-  // TODO
-  //process_recurse(dn, 0);
-  //
-}
 
 /// @brief print program syntax and an optional error message. Aborts the program with EXIT_FAILURE
 ///
@@ -368,7 +436,7 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
 
     for (int j = 0; j < ndir; j++) { //delete later
       if (directories[j])
-          printf("Directory: %s\n", directories[j]);
+          printf("blahblah %s\n", directories[j]);
     }
 
     if (argv[i][0] == '-') {
@@ -402,7 +470,8 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
       if (ndir < MAX_DIR) {
         directories[ndir++] = argv[i];
         printf("%s\n", argv[i]);
-        process_recurse(argv[i], 1);
+        // process_recurse(argv[i], 1);
+        process_dir(argv[i], 1, pattern, &tstat, flags);
       }
       else {
         fprintf(stderr, "Warning: maximum number of directories exceeded, ignoring '%s'.\n", argv[i]);
