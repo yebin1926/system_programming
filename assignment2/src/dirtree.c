@@ -308,6 +308,29 @@ static int dirent_compare(const void *a, const void *b)
 
 // }
 
+static int subtree_has_match(const char *path, const char *pstr, int depth) {
+    DIR *dir = opendir(path);
+    if (!dir) return 0;
+
+    struct dirent *e;
+    char full[MAX_PATH_LEN];
+    int found = 0;
+
+    while ((e = get_next(dir)) != NULL) {
+        // self (entry) match?
+        if (match(e->d_name, pstr)) { found = 1; break; }
+
+        // descend into child directory (if allowed by depth)
+        if (e->d_type == DT_DIR && depth < max_depth) {
+            snprintf(full, sizeof full, "%s/%s", path, e->d_name);
+            if (subtree_has_match(full, pstr, depth + 1)) { found = 1; break; }
+        }
+    }
+
+    closedir(dir);
+    return found;
+}
+
 /// @brief recursively process directory @a dn and print its tree
 ///
 /// @param dn absolute or relative path string
@@ -359,13 +382,16 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
 
     if (list_directories[i].d_type == DT_DIR) {
       // Recurse first: does this child dir contain any match?
-      int child_has_match = (depth < max_depth) ? process_dir(full, depth + 1, pstr, stats, flags) : 0;
+      int child_has_match = (depth < max_depth) ? subtree_has_match(full, pstr, depth + 1) : 0;
 
       if (child_has_match) {
-        // Only print this directory entry if its subtree had a match
+        // print parent first
         printf("%*s%s\n", depth * 2, "", name);
+
+        // then recurse to print only the matching parts of the subtree
+        (void)process_dir(full, depth + 1, pstr, stats, flags);
         any_match_in_this_dir = 1;
-      }
+    }
     } else {
       // File: print only if it matches the pattern (or print all when no filter)
       int file_matches = (pattern == NULL) ? 1 : match(name, pattern);
