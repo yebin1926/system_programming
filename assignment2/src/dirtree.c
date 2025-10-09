@@ -47,7 +47,7 @@ struct summary {
 const char *print_formats[8] = {
   "Name                                                        User:Group           Size    Blocks Type\n",
   "----------------------------------------------------------------------------------------------------\n",
-  "%-54s  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
+  "%-54.54s  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
   "Invalid pattern syntax",
 };
 const char* pattern = NULL;  ///< pattern for filtering entries
@@ -259,76 +259,27 @@ static int dirent_compare(const void *a, const void *b)
   return strcmp(e1->d_name, e2->d_name);
 }
 
-// void process_recurse(const char* path, int depth) //recursive function for iterating through all directories
-// {
-//   DIR *dir = opendir(path);                 //open directory
-//   if(dir == NULL) return;                   //return if directory doesn't exist
-
-//   struct dirent *list_directories = NULL;   //list of directories for that depth, for later sorting
-//   int cap = 0;                              //cap: count of files in that depth
-//   struct dirent *e;
-
-//   while((e = get_next(dir)) != NULL){       //for each file in that depth, store file into list_directories then sort
-//     cap++;
-//     list_directories = realloc(list_directories, cap * sizeof(struct dirent)); //reallocate size of array if another file is found
-//     list_directories[cap-1] = *e;
-//     //printf("Entry: %s\n", e->d_name);
-//   }
-//   qsort(list_directories, cap, sizeof(struct dirent), dirent_compare);
-
-//   int any_match_in_this_dir = 0;
-
-//   for (int i = 0; i < cap; i++) {
-//     const char *name = list_directories[i].d_name;
-//     char full[MAX_PATH_LEN];
-//     snprintf(full, sizeof full, "%s/%s", path, name);
-
-//     if (list_directories[i].d_type == DT_DIR) {
-//       // Recurse first: does this child dir contain any match?
-//       int child_has_match = (depth < max_depth) ? process_recurse(full, depth + 1) : 0;
-
-//       if (child_has_match) {
-//         // Only print this directory entry if its subtree had a match
-//         printf("%*s%s\n", depth * 2, "", name);
-//         any_match_in_this_dir = 1;
-//       }
-//     } else {
-//       // File: print only if it matches the pattern (or print all when no filter)
-//       int file_matches = (pattern == NULL) ? 1 : match(name, pattern);
-//       if (file_matches) {
-//         printf("%*s%s\n", depth * 2, "", name);
-//         any_match_in_this_dir = 1;
-//       }
-//     }
-//   }
-
-//   closedir(dir);
-//   free(list_directories);
-//   return any_match_in_this_dir;
-
-// }
-
 static int subtree_has_match(const char *path, const char *pstr, int depth) {
-    DIR *dir = opendir(path);
-    if (!dir) return 0;
+  DIR *dir = opendir(path);
+  if (!dir) return 0;
 
-    struct dirent *e;
-    char full[MAX_PATH_LEN];
-    int found = 0;
+  struct dirent *e;
+  char full[MAX_PATH_LEN];
+  int found = 0;
 
-    while ((e = get_next(dir)) != NULL) {
-        // self (entry) match?
-        if (match(e->d_name, pstr)) { found = 1; break; }
+  while ((e = get_next(dir)) != NULL) {
+    // self (entry) match?
+    if (match(e->d_name, pstr)) { found = 1; break; }
 
-        // descend into child directory (if allowed by depth)
-        if (e->d_type == DT_DIR && depth < max_depth) {
-            snprintf(full, sizeof full, "%s/%s", path, e->d_name);
-            if (subtree_has_match(full, pstr, depth + 1)) { found = 1; break; }
-        }
+    // descend into child directory (if allowed by depth)
+    if (e->d_type == DT_DIR && depth < max_depth) {
+        snprintf(full, sizeof full, "%s/%s", path, e->d_name);
+        if (subtree_has_match(full, pstr, depth + 1)) { found = 1; break; }
     }
+  }
 
-    closedir(dir);
-    return found;
+  closedir(dir);
+  return found;
 }
 
 /// @brief recursively process directory @a dn and print its tree
@@ -359,12 +310,54 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
   // ------ NO PSTR FILTER ------
   if (pstr == NULL) {
     for (int i = 0; i < cap; i++) {
-      printf("%*s%s\n", depth * 2, "", list_directories[i].d_name);
+      const char *name = list_directories[i].d_name;
+      char full[MAX_PATH_LEN];
+      snprintf(full, sizeof full, "%s/%s", path, name);
+
+      struct stat st;
+      if (lstat(full, &st) == -1) { perror("lstat"); continue; }
+      // printf("%*s%s", depth * 2, "", list_directories[i].d_name);
+      
+      struct passwd *pw = getpwuid(st.st_uid);
+      struct group  *gr = getgrgid(st.st_gid);
+      const char *user  = pw ? pw->pw_name : "?";
+      const char *group = gr ? gr->gr_name : "?";
+
+      char typech = ' ';
+      if (S_ISDIR(st.st_mode))  typech = 'd';
+      else if (S_ISLNK(st.st_mode))  typech = 'l';
+      else if (S_ISSOCK(st.st_mode)) typech = 's';
+      else if (S_ISFIFO(st.st_mode)) typech = 'f';
+      else if (S_ISREG(st.st_mode)) stats->files++;
+
+      char namecol[256];
+      int written = snprintf(namecol, sizeof namecol, "%*s%s", depth * 2, "", name);
+      if(written >= 51){
+          namecol[51] = '.';
+          namecol[52] = '.';
+          namecol[53] = '.';
+        }
+      
+      switch(typech){
+        case 'd':
+          stats->dirs++;
+          break;
+        case 'l':
+          stats->links++;
+          break;
+        case 's':
+          stats->socks++;
+          break;
+        case 'f':
+          stats->fifos++;
+        default:
+          break;
+      }
+
+      printf(print_formats[2], namecol, user, group, (unsigned long long)st.st_size, (unsigned long long)st.st_blocks, typech);
 
       if (list_directories[i].d_type == DT_DIR && depth < max_depth) {
-          char full[MAX_PATH_LEN];
-          snprintf(full, sizeof full, "%s/%s", path, list_directories[i].d_name);
-          (void)process_dir(full, depth + 1, pstr, stats, flags); // keep printing children
+        (void)process_dir(full, depth + 1, pstr, stats, flags); // keep printing children
       }
     }
     closedir(dir);
@@ -385,8 +378,47 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
       int child_has_match = (depth < max_depth) ? subtree_has_match(full, pstr, depth + 1) : 0;
 
       if (child_has_match) {
-        // print parent first
-        printf("%*s%s\n", depth * 2, "", name);
+        char namecol[256];
+        int written = snprintf(namecol, sizeof namecol, "%*s%s", depth * 2, "", name);
+        if(written >= 51){
+          namecol[51] = '.';
+          namecol[52] = '.';
+          namecol[53] = '.';
+        }
+
+        struct stat st;
+        if (stat(full, &st) == -1) { perror("stat"); return 1; }
+
+        struct passwd *pw = getpwuid(st.st_uid);
+        struct group  *gr = getgrgid(st.st_gid);
+        const char *user  = pw ? pw->pw_name : "?";
+        const char *group = gr ? gr->gr_name : "?";
+
+        char typech = ' ';
+        if(S_ISDIR(st.st_mode))  typech = 'd';
+        else if (S_ISLNK(st.st_mode))  typech = 'l';
+        else if (S_ISSOCK(st.st_mode)) typech = 's';
+        else if (S_ISFIFO(st.st_mode)) typech = 'f';
+        else if (S_ISREG(st.st_mode)) stats->files++;
+      
+        switch(typech){
+          case 'd':
+            stats->dirs++;
+            break;
+          case 'l':
+            stats->links++;
+            break;
+          case 's':
+            stats->socks++;
+            break;
+          case 'f':
+            stats->fifos++;
+          default:
+            break;
+        }
+
+        // printf("%*s%s\n", depth * 2, "", name);
+        printf(print_formats[2], namecol, user, group,(unsigned long long)st.st_size, (unsigned long long)st.st_blocks, typech);
 
         // then recurse to print only the matching parts of the subtree
         (void)process_dir(full, depth + 1, pstr, stats, flags);
@@ -409,7 +441,6 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
 
 
 /// @brief print program syntax and an optional error message. Aborts the program with EXIT_FAILURE
-///
 /// @param argv0 command line argument 0 (executable)
 /// @param error optional error (format) string (printf format) or NULL
 /// @param ... parameter to the error format string
@@ -460,10 +491,10 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
   //
   for (int i = 1; i < argc; i++) {
 
-    for (int j = 0; j < ndir; j++) { //delete later
-      if (directories[j])
-          printf("blahblah %s\n", directories[j]);
-    }
+    // for (int j = 0; j < ndir; j++) { //delete later
+    //   if (!directories[j])
+    //     printf("%s\n", directories[j]);
+    // }
 
     if (argv[i][0] == '-') {
       // format: "-<flag>"
@@ -495,9 +526,6 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
       // anything else is recognized as a directory
       if (ndir < MAX_DIR) {
         directories[ndir++] = argv[i];
-        printf("%s\n", argv[i]);
-        // process_recurse(argv[i], 1);
-        process_dir(argv[i], 1, pattern, &tstat, flags);
       }
       else {
         fprintf(stderr, "Warning: maximum number of directories exceeded, ignoring '%s'.\n", argv[i]);
@@ -508,20 +536,31 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
   // if no directory was specified, use the current directory
   if (ndir == 0) directories[ndir++] = CURDIR;
 
-  //
-  // process each directory
-  //
-  // TODO
-  //
-  // Pseudo-code
-  // - reset statistics (tstat)
-  // - loop over all entries in 'root directories' (number of entires stored in 'ndir')
-  //   - reset statistics (dstat)
-  //   - print header
-  //   - print directory name
-  //   - call process_dir() for the directory
-  //   - print summary & update statistics
-  //...
+  //TODO: process each directory
+  for (int j = 0; j < ndir; j++) { //delete later
+    if (directories[j]){
+      struct summary individual_summary = {0};
+      printf("%s%s", print_formats[0], print_formats[1]);
+      printf("%s\n", directories[j]);
+      process_dir(directories[j], 1, pattern, &individual_summary, flags);
+      printf("%s", print_formats[1]);
+      char ending_file = (individual_summary.files == 1) ? '\0' : 's';
+      char ending_link = (individual_summary.links == 1) ? '\0' : 's';
+      char ending_pipe = (individual_summary.fifos == 1) ? '\0' : 's';
+      char ending_socket = (individual_summary.socks == 1) ? '\0' : 's';
+
+      if (individual_summary.dirs == 1){
+        printf("%u file%c, %u directory, %u link%c, %u pipe%c, %u socket%c\n", 
+          individual_summary.files, ending_file, individual_summary.dirs, individual_summary.links, ending_link, 
+          individual_summary.fifos, ending_pipe, individual_summary.socks, ending_socket);
+      } else{
+        printf("%u file%c, %u directories, %u link%c, %u pipe%c, %u socket%c\n", 
+          individual_summary.files, ending_file, individual_summary.dirs, individual_summary.links, ending_link, 
+          individual_summary.fifos, ending_pipe, individual_summary.socks, ending_socket);
+      }
+      printf("\n");
+    }
+  }
 
 
   //
