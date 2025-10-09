@@ -376,61 +376,93 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
     snprintf(full, sizeof full, "%s/%s", path, name);
 
     if (list_directories[i].d_type == DT_DIR) {
-      // Recurse first: does this child dir contain any match?
-      char typech = ' ';
-      int child_has_match = (depth < max_depth) ? subtree_has_match(full, pstr, depth + 1, stats, typech) : 0;
+      int child_has_match = (depth < max_depth) ? subtree_has_match(full, pstr, depth + 1, stats, 'd') : 0;
+      int self_matches    = match(name, pattern);
 
-      if (child_has_match) {
+      if (self_matches || child_has_match) {
+        // Build the name column (indent + name), with simple truncation into 54 chars
         char namecol[256];
         int written = snprintf(namecol, sizeof namecol, "%*s%s", depth * 2, "", name);
-        if(written >= 51){
+        if (written >= 54) {              // keep last 3 as "..."
           namecol[51] = '.';
           namecol[52] = '.';
           namecol[53] = '.';
+          namecol[54] = '\0';
         }
 
         struct stat st;
-        if (stat(full, &st) == -1) { perror("stat"); return 1; }
+        if (lstat(full, &st) == -1) { perror("lstat"); continue; }
 
         struct passwd *pw = getpwuid(st.st_uid);
         struct group  *gr = getgrgid(st.st_gid);
         const char *user  = pw ? pw->pw_name : "?";
         const char *group = gr ? gr->gr_name : "?";
 
-        if(S_ISDIR(st.st_mode))  typech = 'd';
+        char typech = ' ';
+        if      (S_ISDIR(st.st_mode))  typech = 'd';
         else if (S_ISLNK(st.st_mode))  typech = 'l';
         else if (S_ISSOCK(st.st_mode)) typech = 's';
         else if (S_ISFIFO(st.st_mode)) typech = 'f';
-        else if (S_ISREG(st.st_mode)) stats->files++;
-      
-        switch(typech){
-          case 'd':
-            stats->dirs++;
-            break;
-          case 'l':
-            stats->links++;
-            break;
-          case 's':
-            stats->socks++;
-            break;
-          case 'f':
-            stats->fifos++;
-          default:
-            break;
+        else if (S_ISCHR(st.st_mode))  typech = 'c';
+        else if (S_ISBLK(st.st_mode))  typech = 'b';
+
+        printf(print_formats[2], namecol, user, group,
+              (unsigned long long)st.st_size,
+              (unsigned long long)st.st_blocks, typech);
+
+        if (self_matches) {
+          if      (typech == 'd') stats->dirs++;
+          else if (typech == 'l') stats->links++;
+          else if (typech == 's') stats->socks++;
+          else if (typech == 'f') stats->fifos++;
+          // (devices ignored; add if you need)
         }
 
-        // printf("%*s%s\n", depth * 2, "", name);
-        printf(print_formats[2], namecol, user, group,(unsigned long long)st.st_size, (unsigned long long)st.st_blocks, typech);
+        // Recurse to print matching descendants (only needed if some child matched)
+        if (child_has_match && depth < max_depth) {
+          (void)process_dir(full, depth + 1, pstr, stats, flags);
+        }
 
-        // then recurse to print only the matching parts of the subtree
-        (void)process_dir(full, depth + 1, pstr, stats, flags);
         any_match_in_this_dir = 1;
-    }
+      }
+
     } else {
-      // File: print only if it matches the pattern (or print all when no filter)
-      int file_matches = (pattern == NULL) ? 1 : match(name, pattern);
+      // FILE: print and count only if its own name matches
+      int file_matches = match(name, pattern);
       if (file_matches) {
-        printf("%*s%s\n", depth * 2, "", name);
+        char namecol[256];
+        int written = snprintf(namecol, sizeof namecol, "%*s%s", depth * 2, "", name);
+        if (written >= 54) {
+          namecol[51] = '.';
+          namecol[52] = '.';
+          namecol[53] = '.';
+          namecol[54] = '\0';
+        }
+
+        struct stat st;
+        if (lstat(full, &st) == -1) { perror("lstat"); continue; }
+
+        struct passwd *pw = getpwuid(st.st_uid);
+        struct group  *gr = getgrgid(st.st_gid);
+        const char *user  = pw ? pw->pw_name : "?";
+        const char *group = gr ? gr->gr_name : "?";
+
+        char typech = ' ';                // keep regular files as space in the Type column
+        if      (S_ISLNK(st.st_mode))  typech = 'l';
+        else if (S_ISSOCK(st.st_mode)) typech = 's';
+        else if (S_ISFIFO(st.st_mode)) typech = 'f';
+        else if (S_ISCHR(st.st_mode))  typech = 'c';
+        else if (S_ISBLK(st.st_mode))  typech = 'b';
+
+        printf(print_formats[2], namecol, user, group,
+              (unsigned long long)st.st_size,
+              (unsigned long long)st.st_blocks, typech);
+
+        if      (S_ISREG(st.st_mode))  stats->files++;
+        else if (S_ISLNK(st.st_mode))  stats->links++;
+        else if (S_ISSOCK(st.st_mode)) stats->socks++;
+        else if (S_ISFIFO(st.st_mode)) stats->fifos++;
+
         any_match_in_this_dir = 1;
       }
     }
@@ -552,15 +584,23 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
       char ending_socket = (individual_summary.socks == 1) ? '\0' : 's';
 
       if (individual_summary.dirs == 1){
-        printf("%u file%c, %u directory, %u link%c, %u pipe%c, %u socket%c\n", 
+        printf("%u file%c, %u directory, %u link%c, %u pipe%c, and %u socket%c\n", 
           individual_summary.files, ending_file, individual_summary.dirs, individual_summary.links, ending_link, 
           individual_summary.fifos, ending_pipe, individual_summary.socks, ending_socket);
       } else{
-        printf("%u file%c, %u directories, %u link%c, %u pipe%c, %u socket%c\n", 
+        printf("%u file%c, %u directories, %u link%c, %u pipe%c, and %u socket%c\n", 
           individual_summary.files, ending_file, individual_summary.dirs, individual_summary.links, ending_link, 
           individual_summary.fifos, ending_pipe, individual_summary.socks, ending_socket);
       }
       printf("\n");
+
+      tstat.files  += individual_summary.files;
+      tstat.dirs   += individual_summary.dirs;
+      tstat.links  += individual_summary.links;
+      tstat.fifos  += individual_summary.fifos;
+      tstat.socks  += individual_summary.socks;
+      tstat.size   += individual_summary.size;
+      tstat.blocks += individual_summary.blocks;
     }
   }
 
