@@ -259,7 +259,7 @@ static int dirent_compare(const void *a, const void *b)
   return strcmp(e1->d_name, e2->d_name);
 }
 
-static int subtree_has_match(const char *path, const char *pstr, int depth) {
+static int subtree_has_match(const char *path, const char *pstr, int depth, struct summary *stats, char typech) {
   DIR *dir = opendir(path);
   if (!dir) return 0;
 
@@ -269,12 +269,14 @@ static int subtree_has_match(const char *path, const char *pstr, int depth) {
 
   while ((e = get_next(dir)) != NULL) {
     // self (entry) match?
-    if (match(e->d_name, pstr)) { found = 1; break; }
+    if (match(e->d_name, pstr)) { 
+      found = 1; break; 
+    }
 
     // descend into child directory (if allowed by depth)
     if (e->d_type == DT_DIR && depth < max_depth) {
         snprintf(full, sizeof full, "%s/%s", path, e->d_name);
-        if (subtree_has_match(full, pstr, depth + 1)) { found = 1; break; }
+        if (subtree_has_match(full, pstr, depth + 1, stats, typech)) { found = 1; break; }
     }
   }
 
@@ -375,7 +377,8 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
 
     if (list_directories[i].d_type == DT_DIR) {
       // Recurse first: does this child dir contain any match?
-      int child_has_match = (depth < max_depth) ? subtree_has_match(full, pstr, depth + 1) : 0;
+      char typech = ' ';
+      int child_has_match = (depth < max_depth) ? subtree_has_match(full, pstr, depth + 1, stats, typech) : 0;
 
       if (child_has_match) {
         char namecol[256];
@@ -394,7 +397,6 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
         const char *user  = pw ? pw->pw_name : "?";
         const char *group = gr ? gr->gr_name : "?";
 
-        char typech = ' ';
         if(S_ISDIR(st.st_mode))  typech = 'd';
         else if (S_ISLNK(st.st_mode))  typech = 'l';
         else if (S_ISSOCK(st.st_mode)) typech = 's';
