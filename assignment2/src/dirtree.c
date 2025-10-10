@@ -65,7 +65,6 @@ void panic(const char* msg, const char* format)
   exit(EXIT_FAILURE);
 }
 
-
 /// @brief read next directory entry from open directory 'dir'. Ignores '.' and '..' entries
 /// @param dir open DIR* stream
 /// @retval entry on success
@@ -319,6 +318,8 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
       struct stat st;
       if (lstat(full, &st) == -1) { perror("lstat"); continue; }
       // printf("%*s%s", depth * 2, "", list_directories[i].d_name);
+      stats->size   += st.st_size;
+      stats->blocks += st.st_blocks;
       
       struct passwd *pw = getpwuid(st.st_uid);
       struct group  *gr = getgrgid(st.st_gid);
@@ -406,16 +407,19 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
         else if (S_ISCHR(st.st_mode))  typech = 'c';
         else if (S_ISBLK(st.st_mode))  typech = 'b';
 
-        printf(print_formats[2], namecol, user, group,
+        if (self_matches) {
+          printf(print_formats[2], namecol, user, group,
               (unsigned long long)st.st_size,
               (unsigned long long)st.st_blocks, typech);
-
-        if (self_matches) {
+          stats->size   += st.st_size;
+          stats->blocks += st.st_blocks;
           if      (typech == 'd') stats->dirs++;
           else if (typech == 'l') stats->links++;
           else if (typech == 's') stats->socks++;
           else if (typech == 'f') stats->fifos++;
           // (devices ignored; add if you need)
+        } else {
+          printf("%s\n", namecol);
         }
 
         // Recurse to print matching descendants (only needed if some child matched)
@@ -425,6 +429,7 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
 
         any_match_in_this_dir = 1;
       }
+
 
     } else {
       // FILE: print and count only if its own name matches
@@ -457,6 +462,9 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
         printf(print_formats[2], namecol, user, group,
               (unsigned long long)st.st_size,
               (unsigned long long)st.st_blocks, typech);
+  
+        stats->size   += st.st_size;
+        stats->blocks += st.st_blocks;
 
         if      (S_ISREG(st.st_mode))  stats->files++;
         else if (S_ISLNK(st.st_mode))  stats->links++;
@@ -472,7 +480,6 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
   free(list_directories);
   return any_match_in_this_dir;
 }
-
 
 /// @brief print program syntax and an optional error message. Aborts the program with EXIT_FAILURE
 /// @param argv0 command line argument 0 (executable)
@@ -506,7 +513,6 @@ void syntax(const char *argv0, const char *error, ...)
 
   exit(EXIT_FAILURE);
 }
-
 
 /// @brief program entry point
 int main(int argc, char *argv[]) //argc : argument count, argv: array of strings (char*) holding the actual arguments.
@@ -578,20 +584,31 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
       printf("%s\n", directories[j]);
       process_dir(directories[j], 1, pattern, &individual_summary, flags);
       printf("%s", print_formats[1]);
-      char ending_file = (individual_summary.files == 1) ? '\0' : 's';
-      char ending_link = (individual_summary.links == 1) ? '\0' : 's';
-      char ending_pipe = (individual_summary.fifos == 1) ? '\0' : 's';
-      char ending_socket = (individual_summary.socks == 1) ? '\0' : 's';
+      const char *s_files  = (individual_summary.files  == 1) ? "" : "s";
+      const char *s_links  = (individual_summary.links  == 1) ? "" : "s";
+      const char *s_pipes  = (individual_summary.fifos  == 1) ? "" : "s";
+      const char *s_socks  = (individual_summary.socks  == 1) ? "" : "s";
+      const char *dir_word = (individual_summary.dirs   == 1) ? "directory" : "directories";
 
-      if (individual_summary.dirs == 1){
-        printf("%u file%c, %u directory, %u link%c, %u pipe%c, and %u socket%c\n", 
-          individual_summary.files, ending_file, individual_summary.dirs, individual_summary.links, ending_link, 
-          individual_summary.fifos, ending_pipe, individual_summary.socks, ending_socket);
-      } else{
-        printf("%u file%c, %u directories, %u link%c, %u pipe%c, and %u socket%c\n", 
-          individual_summary.files, ending_file, individual_summary.dirs, individual_summary.links, ending_link, 
-          individual_summary.fifos, ending_pipe, individual_summary.socks, ending_socket);
-      }
+      char left[256];
+      snprintf(left, sizeof left,
+              "%u file%s, %u %s, %u link%s, %u pipe%s, and %u socket%s",
+              individual_summary.files, s_files,
+              individual_summary.dirs,  dir_word,
+              individual_summary.links, s_links,
+              individual_summary.fifos, s_pipes,
+              individual_summary.socks, s_socks);
+            
+            char namecol[256];
+            snprintf(namecol, sizeof namecol, "%s", left);
+
+      /* Print a footer row aligned to Size/Blocks, but with blank User:Group and no truncation of 'left' */
+      printf("%-54s  %8s  %10llu  %8llu    %c\n",
+            left,               /* full sentence, not truncated */
+            "",                 /* blank User:Group field (8 spaces) */
+            (unsigned long long)individual_summary.size,
+            (unsigned long long)individual_summary.blocks,
+            ' ');               /* blank Type column */
       printf("\n");
 
       tstat.files  += individual_summary.files;
@@ -603,7 +620,6 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
       tstat.blocks += individual_summary.blocks;
     }
   }
-
 
   //
   // print aggregate statistics if more than one directory was traversed
@@ -628,4 +644,3 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
   //
   return EXIT_SUCCESS;
 }
-
