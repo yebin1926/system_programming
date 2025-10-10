@@ -143,7 +143,7 @@ static int submatch(const char *s, const char *p, int is_only_group){
     }   
 
     if (*p == '*') {
-      if(*(p+1) == '*') return 2;                       //two *s in a row - invalid
+      // if(*(p+1) == '*') return 2;                       //two *s in a row - invalid
       if (submatch(s, p + 1, is_only_group)) return 1;  //if 
       // try consuming one character and stay on '*'
       return (*s && submatch(s + 1, p, is_only_group)) ? 1 : 0;
@@ -171,6 +171,7 @@ static int submatch(const char *s, const char *p, int is_only_group){
       int len = (int)(p_closed - (p + 1));   // get size of substring
       if (len <= 0) {
         // Empty group like "()" is invalid → not a match
+        panic("Invalid pattern syntax", NULL);
         return 0;
       }
       const char *after = p_closed + 1;            // first char after ')'
@@ -207,12 +208,33 @@ static int submatch(const char *s, const char *p, int is_only_group){
 }
 
 static int match(const char *str, const char *pattern){
-  if (*pattern == '*') {
+  if (*pattern == '*' || *pattern == '\0') {
     panic("Invalid pattern syntax", NULL);
     return 0;
   } //if it starts with *, return false
   for (const char *q = pattern; *q; ++q) {
     if (*q == '*' && q[1] == '*') {
+      panic("Invalid pattern syntax", NULL);
+      return 0;
+    }
+  }
+  for (const char *q = pattern; *q; ++q) {
+    if (*q == '*' && q[1] == '*') {
+      panic("Invalid pattern syntax", NULL);
+      return 0;
+    }
+    if (*q == '(') {
+      const char *close = find_close(q);
+      if (!close) {
+        panic("Invalid pattern syntax", NULL);
+        return 0;
+      }
+      if (close == q + 1) {            // empty group "()"
+        panic("Invalid pattern syntax", NULL);
+        return 0;
+      }
+      q = close;                        // skip to the ')'
+    } else if (*q == ')') {             // stray ')'
       panic("Invalid pattern syntax", NULL);
       return 0;
     }
