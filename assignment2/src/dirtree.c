@@ -164,7 +164,10 @@ static int submatch(const char *s, const char *p, int is_only_group){
     else if (*p == '('){
       //endless repetition here
       const char* p_closed = find_close(p);        // find pointer to closing braket )
-      if (p_closed == NULL) return 0; 
+      if (p_closed == NULL) {
+        panic("Invalid pattern syntax", NULL);
+        return 0;
+      }
       int len = (int)(p_closed - (p + 1));   // get size of substring
       if (len <= 0) {
         // Empty group like "()" is invalid → not a match
@@ -204,10 +207,15 @@ static int submatch(const char *s, const char *p, int is_only_group){
 }
 
 static int match(const char *str, const char *pattern){
-  if (*pattern == '*') return 0;            //if it starts with *, return false
-  //TODO: print invalid pattern syntax
+  if (*pattern == '*') {
+    panic("Invalid pattern syntax", NULL);
+    return 0;
+  } //if it starts with *, return false
   for (const char *q = pattern; *q; ++q) {
-    if (*q == '*' && q[1] == '*') return 0;
+    if (*q == '*' && q[1] == '*') {
+      panic("Invalid pattern syntax", NULL);
+      return 0;
+    }
   }
   //check if the whole search keyword is a group
   const char* p_closed = find_close(pattern);
@@ -217,6 +225,8 @@ static int match(const char *str, const char *pattern){
     p_closed = find_close(pattern);        // may be NULL for unbalanced '('
     if (p_closed && *(p_closed + 1) == '*' && *(p_closed + 2) == '\0') {
       is_only_group = 1;
+    } else if (!p_closed){
+      panic("Invalid pattern syntax", NULL);
     }
   }
   if(is_only_group && *str == '\0'){
@@ -384,7 +394,7 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
         // Build the name column (indent + name), with simple truncation into 54 chars
         char namecol[256];
         int written = snprintf(namecol, sizeof namecol, "%*s%s", depth * 2, "", name);
-        if (written >= 54) {              // keep last 3 as "..."
+        if (written > 54) {              // keep last 3 as "..."
           namecol[51] = '.';
           namecol[52] = '.';
           namecol[53] = '.';
@@ -575,6 +585,11 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
 
   // if no directory was specified, use the current directory
   if (ndir == 0) directories[ndir++] = CURDIR;
+
+  // after arg parsing, before any printing
+  if (pattern) {
+    (void)match("", pattern);   // validate once; on invalid, panic() exits now
+  }
 
   //TODO: process each directory
   for (int j = 0; j < ndir; j++) { //delete later
