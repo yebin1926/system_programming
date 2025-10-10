@@ -3,8 +3,8 @@
 //
 /// @file
 /// @brief resursively traverse directory tree and list all entries
-/// @author <yourname>
-/// @studid <studentid>
+/// @author <편예빈>
+/// @studid <2021-10421>
 //--------------------------------------------------------------------------------------------------
 
 #define _GNU_SOURCE
@@ -50,7 +50,7 @@ const char *print_formats[8] = {
   "%-54.54s  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
   "Invalid pattern syntax",
 };
-const char* pattern = NULL;  ///< pattern for filtering entries
+const char* pattern = NULL; 
 
 /// @brief abort the program with EXIT_FAILURE and an optional error message
 ///
@@ -85,9 +85,9 @@ struct dirent *get_next(DIR *dir) // A helper function to read the next entry (s
 }
 
 const char *find_close(const char *p) { //function that returns pointer to closing bracket )
-  int depth = 1;                        // start when seeing one '('
-  for (p = p + 1; *p; p++) {
-      if (*p == '(') depth++;
+  int depth = 1;                        // start with 1 because we're seeing one '(' (although we're not using nested brackets)
+  for (p = p + 1; *p; p++) {            // traverse through string
+      if (*p == '(') depth++;           // increase depth count when coming across (, so that we find outermost )
       else if (*p == ')') {
           depth--;
           if (depth == 0) return p;   // if all ( are closed with ), return that pointer
@@ -101,9 +101,9 @@ const char *check_repetition_match(const char *s, const char *p, int unit_len)
   const char *end_of_run = s;                     // end of run: how far we've scanned so far within s
   int run_count = 0;                              // how many repetitions we've been through
   while(1) {
-    int matches_count = 0;                      // counter for how many matches there were so far
-    const char *s_current = end_of_run;         // current position within s
-    const char *p_current = p;                  // current position within p
+    int matches_count = 0;                       // counter for how many matches there were so far
+    const char *s_current = end_of_run;          // current position within s
+    const char *p_current = p;                   // current position within p
     // Try to match one full copy of the unit
     while (matches_count < unit_len && *s_current && *p_current && (*s_current == *p_current || *p_current == '?')) {  //if we haven't matched all of the pattern yet, but we still have remaining characters to match, continue
       ++matches_count;
@@ -113,7 +113,7 @@ const char *check_repetition_match(const char *s, const char *p, int unit_len)
     if (matches_count == unit_len) {            //if all were matched, move end_of_run to check for the next copy
       run_count++;
       end_of_run = s_current;
-    } else {
+    } else {                                    // if match fails halfway through scanning, return null
       if(matches_count != 0 && run_count == 0){
         return NULL;
       }
@@ -124,68 +124,58 @@ const char *check_repetition_match(const char *s, const char *p, int unit_len)
 
 static int submatch(const char *s, const char *p, int is_only_group){
   while (*p != '\0'){       
-
     if (*s == '\0') {
       // if search keyword is "", and if pattern can be skipped (like (abc)* or x* repeated), treat as match. Else, return 0
       while (*p) {
-          // if (*(p + 1) == '*') p += 2;
-          if (*p == '*') { p += 1; }
-          else if (*p == '(') {
-              const char *close = find_close(p);
-              if (close && *(close + 1) == '*')
-                  p = close + 2; // skip (group)*
-              else
-                  return 0;
-          } else
+        if (*p == '*') { p += 1; }
+        else if (*p == '(') {
+          const char *close = find_close(p);
+          if (close && *(close + 1) == '*')
+              p = close + 2; // skip (group)*
+          else
               return 0;
+        } else
+            return 0;
       }
-    return 1;
+      return 1;
     }   
 
-    if (*p == '*') {
-      // if(*(p+1) == '*') return 2;                       //two *s in a row - invalid
-      if (submatch(s, p + 1, is_only_group)) return 1;  //if 
+    if (*p == '*') { 
+      if (submatch(s, p + 1, is_only_group)) return 1;            //when getting to *, skip it -- it should not be counted/compared as a character
       // try consuming one character and stay on '*'
       return (*s && submatch(s + 1, p, is_only_group)) ? 1 : 0;
-    } else if (*(p + 1) == '*') {
-      char c = *p;                 // repeat this literal
-      const char *rest = p + 2;    // pattern after the 'x*'
+    } else if (*(p + 1) == '*') {                                 //if next char is *, save current *p to test repetitions of it    
+      char c = *p;                                                // repeat this literal
+      const char *rest = p + 2;                                   // pattern after the 'x*'
 
-      // try zero copies
-      if (submatch(s, rest, is_only_group)) return 1;
+      if (submatch(s, rest, is_only_group)) return 1;            // try zero copies, if it works return 1
 
-      // try one-or-more copies
-      while (*s == c) {
+      while (*s == c) {                                          // try one-or-more copies
         s++;
         if (submatch(s, rest, is_only_group)) return 1;
       }
       return 0;
     }
-    else if (*p == '('){
-      //endless repetition here
-      const char* p_closed = find_close(p);        // find pointer to closing braket )
+    else if (*p == '('){                           // if it could be a group
+      //endless repetition here 
+      const char* p_closed = find_close(p);        // find pointer to closing braket ), if none call stderr
       if (p_closed == NULL) {
         panic("Invalid pattern syntax", NULL);
         return 0;
       }
-      int len = (int)(p_closed - (p + 1));   // get size of substring
-      if (len <= 0) {
-        // Empty group like "()" is invalid → not a match
-        panic("Invalid pattern syntax", NULL);
-        return 0;
-      }
-      const char *after = p_closed + 1;            // first char after ')'
+      int len = (int)(p_closed - (p + 1));         // get size of substring of group
 
-      if (*after == '*'){
-        const char *end = check_repetition_match(s, p + 1, len); // consume (group)*
+      const char *after = p_closed + 1;            // get first char after ')'
+
+      if (*after == '*'){                          // this group should be checked for repetition
+        const char *end = check_repetition_match(s, p + 1, len); // check group for repetition
         if(end == NULL) return 2;
-        const char next = *(p_closed + 2);
+        const char next = *(p_closed + 2);         // 
         if (next && next != '(' && next != ')' && next != '*' && next != '?') {
-            if (*end != next) return 0;
+          if (*end != next) return 0;
         }
-        return submatch(end, p_closed + 2, is_only_group);       // continue after the '*'
-      } else{
-        //what should i put here
+        return submatch(end, p_closed + 2, is_only_group);      // continue after the '*'
+      } else {
         int k = 0;
         const char *ts = s, *tp = p + 1;               // compare inner literally
         while (k < len && *ts && *tp && (*tp == '?' || *ts == *tp)) { k++; ts++; tp++; }
@@ -196,34 +186,29 @@ static int submatch(const char *s, const char *p, int is_only_group){
         p = after;                                     // move pattern past ')'
         continue;                                      // continue the while-loop in submatch
       }
-    } else if (*s != *p && *p != '?') return 0;          // if it's not a star case: must match literally or be '?'. If not, return 0
+    } else if (*s != *p && *p != '?') return 0;        // if it's not a star case: must match literally or be '?'. If not, return 0
     else {
       s++;
       p++;
     }
   }
-  while (*p == '*') p += 1;           // handling trailing x*
+  while (*p == '*') p += 1;           // trailing x*
 
   return (*p == '\0');  //if p = "", return true
 }
 
 static int match(const char *str, const char *pattern){
-  if (*pattern == '*' || *pattern == '\0') {
+  // handling cases for invalid pattern syntax 
+  if (*pattern == '*' || *pattern == '\0') {    //if pattern starts with * or is empty
     panic("Invalid pattern syntax", NULL);
     return 0;
-  } //if it starts with *, return false
-  for (const char *q = pattern; *q; ++q) {
-    if (*q == '*' && q[1] == '*') {
-      panic("Invalid pattern syntax", NULL);
-      return 0;
-    }
   }
-  for (const char *q = pattern; *q; ++q) {
+  for (const char *q = pattern; *q; ++q) {      //if pattern has double **
     if (*q == '*' && q[1] == '*') {
       panic("Invalid pattern syntax", NULL);
       return 0;
     }
-    if (*q == '(') {
+    if (*q == '(') {                            //if pattern has unbalanced ( or ), or has empty group
       const char *close = find_close(q);
       if (!close) {
         panic("Invalid pattern syntax", NULL);
@@ -233,27 +218,27 @@ static int match(const char *str, const char *pattern){
         panic("Invalid pattern syntax", NULL);
         return 0;
       }
-      q = close;                        // skip to the ')'
+      q = close;                        
     } else if (*q == ')') {             // stray ')'
       panic("Invalid pattern syntax", NULL);
       return 0;
     }
   }
-  //check if the whole search keyword is a group
+
+  //check if the whole search keyword is a group, and change is_only_group accordingly
   const char* p_closed = find_close(pattern);
-  //const char *after = p_closed + 1;
   int is_only_group = 0;
   if (*pattern == '(') {
-    p_closed = find_close(pattern);        // may be NULL for unbalanced '('
+    p_closed = find_close(pattern);
     if (p_closed && *(p_closed + 1) == '*' && *(p_closed + 2) == '\0') {
       is_only_group = 1;
-    } else if (!p_closed){
-      panic("Invalid pattern syntax", NULL);
     }
   }
+
   if(is_only_group && *str == '\0'){
     return 1;
   }
+
   do {
     int result = submatch(str, pattern, is_only_group);
     switch(result){
@@ -290,6 +275,7 @@ static int dirent_compare(const void *a, const void *b)
   return strcmp(e1->d_name, e2->d_name);
 }
 
+//checks if the directory's subtree has a match
 static int subtree_has_match(const char *path, const char *pstr, int depth, struct summary *stats, char typech) {
   DIR *dir = opendir(path);
   if (!dir) return 0;
@@ -299,12 +285,11 @@ static int subtree_has_match(const char *path, const char *pstr, int depth, stru
   int found = 0;
 
   while ((e = get_next(dir)) != NULL) {
-    // self (entry) match?
     if (match(e->d_name, pstr)) { 
       found = 1; break; 
     }
 
-    // descend into child directory (if allowed by depth)
+    // descend into child directory
     if (e->d_type == DT_DIR && depth < max_depth) {
         snprintf(full, sizeof full, "%s/%s", path, e->d_name);
         if (subtree_has_match(full, pstr, depth + 1, stats, typech)) { found = 1; break; }
@@ -325,7 +310,7 @@ static int subtree_has_match(const char *path, const char *pstr, int depth, stru
 static int process_dir(const char *path, int depth, const char *pstr, struct summary *stats, unsigned int flags)
 {
   // TODO
-  DIR *dir = opendir(path);                 //open directory
+  DIR *dir = opendir(path);                  //open directory
   if(dir == NULL) return -1;                 //return if directory doesn't exist
 
   struct dirent *list_directories = NULL;   //list of directories for that depth, for later sorting
@@ -336,24 +321,22 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
     cap++;
     list_directories = realloc(list_directories, cap * sizeof(struct dirent)); //reallocate size of array if another file is found
     list_directories[cap-1] = *e;
-    //printf("Entry: %s\n", e->d_name);
   }
-  qsort(list_directories, cap, sizeof(struct dirent), dirent_compare);
+  qsort(list_directories, cap, sizeof(struct dirent), dirent_compare); //sort directories in that depth first showing directories then alphabetical
 
-  // ------ NO PSTR FILTER ------
+  // ------ NO F FILTER ------
   if (pstr == NULL) {
     for (int i = 0; i < cap; i++) {
       const char *name = list_directories[i].d_name;
       char full[MAX_PATH_LEN];
-      snprintf(full, sizeof full, "%s/%s", path, name);
+      snprintf(full, sizeof full, "%s/%s", path, name);           //make the full path for later
 
       struct stat st;
-      if (lstat(full, &st) == -1) { perror("lstat"); continue; }
-      // printf("%*s%s", depth * 2, "", list_directories[i].d_name);
+      if (lstat(full, &st) == -1) { perror("lstat"); continue; }  //get lstat of path, and increment the directory's stats
       stats->size   += st.st_size;
       stats->blocks += st.st_blocks;
       
-      struct passwd *pw = getpwuid(st.st_uid);
+      struct passwd *pw = getpwuid(st.st_uid);                    //get necessary info (user, group, type, etc)
       struct group  *gr = getgrgid(st.st_gid);
       const char *user  = pw ? pw->pw_name : "?";
       const char *group = gr ? gr->gr_name : "?";
@@ -365,15 +348,16 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
       else if (S_ISFIFO(st.st_mode)) typech = 'f';
       else if (S_ISREG(st.st_mode)) stats->files++;
 
-      char namecol[256];
+      char namecol[256];                                          //format for the path name column
       int written = snprintf(namecol, sizeof namecol, "%*s%s", depth * 2, "", name);
-      if(written >= 51){
-          namecol[51] = '.';
-          namecol[52] = '.';
-          namecol[53] = '.';
-        }
+      if(written > 54){                                          //if the path string exceeds max length, truncate it
+        namecol[51] = '.';
+        namecol[52] = '.';
+        namecol[53] = '.';
+        namecol[54] = '\0';
+      }
       
-      switch(typech){
+      switch(typech){                                            //update individual summary stats
         case 'd':
           stats->dirs++;
           break;
@@ -397,10 +381,10 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
     }
     closedir(dir);
     free(list_directories);
-    return 1; // we printed entries in this subtree
+    return 1;
   }
 
-  // ------ WITH PSTR FILTER ------
+  // ------ WITH F FILTER ------
   int any_match_in_this_dir = 0;
 
   for (int i = 0; i < cap; i++) {
@@ -408,22 +392,22 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
     char full[MAX_PATH_LEN];
     snprintf(full, sizeof full, "%s/%s", path, name);
 
-    if (list_directories[i].d_type == DT_DIR) {
+    if (list_directories[i].d_type == DT_DIR) {           //check whether current directory or child has match 
       int child_has_match = (depth < max_depth) ? subtree_has_match(full, pstr, depth + 1, stats, 'd') : 0;
       int self_matches    = match(name, pattern);
 
-      if (self_matches || child_has_match) {
+      if (self_matches || child_has_match) {              //if either both is a match, print current file name
         // Build the name column (indent + name), with simple truncation into 54 chars
         char namecol[256];
         int written = snprintf(namecol, sizeof namecol, "%*s%s", depth * 2, "", name);
-        if (written > 54) {              // keep last 3 as "..."
+        if (written > 54) {              // if path exceeds max length, keep last 3 as "..."
           namecol[51] = '.';
           namecol[52] = '.';
           namecol[53] = '.';
           namecol[54] = '\0';
         }
 
-        struct stat st;
+        struct stat st;                                  //get necessary info (user, group, type, etc)
         if (lstat(full, &st) == -1) { perror("lstat"); continue; }
 
         struct passwd *pw = getpwuid(st.st_uid);
@@ -439,7 +423,7 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
         else if (S_ISCHR(st.st_mode))  typech = 'c';
         else if (S_ISBLK(st.st_mode))  typech = 'b';
 
-        if (self_matches) {
+        if (self_matches) {                               //if the current directory is also a match, increment file, size, and block count
           printf(print_formats[2], namecol, user, group,
               (unsigned long long)st.st_size,
               (unsigned long long)st.st_blocks, typech);
@@ -454,7 +438,7 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
           printf("%s\n", namecol);
         }
 
-        // Recurse to print matching descendants (only needed if some child matched)
+        // Recurse to print matching descendants (only if some child matched)
         if (child_has_match && depth < max_depth) {
           (void)process_dir(full, depth + 1, pstr, stats, flags);
         }
@@ -463,12 +447,12 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
       }
 
 
-    } else {
-      // FILE: print and count only if its own name matches
+    } else {  //if it's not a directory:
+      // print and count only if its own name matches
       int file_matches = match(name, pattern);
       if (file_matches) {
         char namecol[256];
-        int written = snprintf(namecol, sizeof namecol, "%*s%s", depth * 2, "", name);
+        int written = snprintf(namecol, sizeof namecol, "%*s%s", depth * 2, "", name);  //format file name, and truncate if needed
         if (written >= 54) {
           namecol[51] = '.';
           namecol[52] = '.';
@@ -479,6 +463,7 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
         struct stat st;
         if (lstat(full, &st) == -1) { perror("lstat"); continue; }
 
+        //get necessary info (user, group, type, etc)
         struct passwd *pw = getpwuid(st.st_uid);
         struct group  *gr = getgrgid(st.st_gid);
         const char *user  = pw ? pw->pw_name : "?";
@@ -495,7 +480,7 @@ static int process_dir(const char *path, int depth, const char *pstr, struct sum
               (unsigned long long)st.st_size,
               (unsigned long long)st.st_blocks, typech);
   
-        stats->size   += st.st_size;
+        stats->size   += st.st_size;    //increment individual file statistics
         stats->blocks += st.st_blocks;
 
         if      (S_ISREG(st.st_mode))  stats->files++;
@@ -550,8 +535,6 @@ void syntax(const char *argv0, const char *error, ...)
 int main(int argc, char *argv[]) //argc : argument count, argv: array of strings (char*) holding the actual arguments.
 {
   //
-  // default directory is the current directory (".")
-  //
   const char CURDIR[] = ".";
   const char *directories[MAX_DIR]; //to-do list of paths the program will traverse.
   int   ndir = 0; //counter that keeps track of how many directories are currently stored in that array
@@ -562,12 +545,6 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
   // parse arguments
   //
   for (int i = 1; i < argc; i++) {
-
-    // for (int j = 0; j < ndir; j++) { //delete later
-    //   if (!directories[j])
-    //     printf("%s\n", directories[j]);
-    // }
-
     if (argv[i][0] == '-') {
       // format: "-<flag>"
       if (!strcmp(argv[i], "-d")) {
@@ -613,14 +590,18 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
     (void)match("", pattern);   // validate once; on invalid, panic() exits now
   }
 
-  //TODO: process each directory
-  for (int j = 0; j < ndir; j++) { //delete later
+  //TODO
+  for (int j = 0; j < ndir; j++) {
     if (directories[j]){
       struct summary individual_summary = {0};
+
+      //process each directory
       printf("%s%s", print_formats[0], print_formats[1]);
       printf("%s\n", directories[j]);
       process_dir(directories[j], 1, pattern, &individual_summary, flags);
       printf("%s", print_formats[1]);
+
+      //different string formats depending on singular/plural
       const char *s_files  = (individual_summary.files  == 1) ? "" : "s";
       const char *s_links  = (individual_summary.links  == 1) ? "" : "s";
       const char *s_pipes  = (individual_summary.fifos  == 1) ? "" : "s";
@@ -636,10 +617,10 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
               individual_summary.fifos, s_pipes,
               individual_summary.socks, s_socks);
             
-            char namecol[256];
-            snprintf(namecol, sizeof namecol, "%s", left);
+      char namecol[256];
+      snprintf(namecol, sizeof namecol, "%s", left);
 
-      /* Print a footer row aligned to Size/Blocks, but with blank User:Group and no truncation of 'left' */
+      // Print a footer row aligned to Size/Blocks
       printf("%-54s  %8s  %10llu  %8llu    %c\n",
             left,               /* full sentence, not truncated */
             "",                 /* blank User:Group field (8 spaces) */
@@ -648,6 +629,7 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
             ' ');               /* blank Type column */
       printf("\n");
 
+      //update total summary statistics
       tstat.files  += individual_summary.files;
       tstat.dirs   += individual_summary.dirs;
       tstat.links  += individual_summary.links;
@@ -657,10 +639,7 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
       tstat.blocks += individual_summary.blocks;
     }
   }
-
-  //
   // print aggregate statistics if more than one directory was traversed
-  //
   if (ndir > 1) {
     printf("Analyzed %d directories:\n"
       "  total # of files:        %16d\n"
@@ -675,9 +654,5 @@ int main(int argc, char *argv[]) //argc : argument count, argv: array of strings
       tstat.files + tstat.dirs + tstat.links + tstat.fifos + tstat.socks, 
       tstat.size, tstat.blocks);
   }
-
-  //
-  // that's all, folks!
-  //
   return EXIT_SUCCESS;
 }
