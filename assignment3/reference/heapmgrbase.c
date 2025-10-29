@@ -44,17 +44,18 @@ static int
 check_heap_validity(void)
 {
     Chunk_T w;
-
+    
+    //makes sure heap is initialized.
     if (s_heap_lo == NULL) { fprintf(stderr, "Uninitialized heap start\n"); return FALSE; }
     if (s_heap_hi == NULL) { fprintf(stderr, "Uninitialized heap end\n");   return FALSE; }
 
     if (s_heap_lo == s_heap_hi) {
-        if (s_free_head == NULL) return TRUE;
+        if (s_free_head == NULL) return TRUE; //if heap is empty, the free list should also be empty
         fprintf(stderr, "Inconsistent empty heap\n");
         return FALSE;
     }
 
-    /* Walk all physical blocks in address order. */
+    /* Walk all physical blocks in address order. and check if their chunk is valid*/
     for (w = (Chunk_T)s_heap_lo;
          w && w < (Chunk_T)s_heap_hi;
          w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) {
@@ -65,13 +66,13 @@ check_heap_validity(void)
     for (w = s_free_head; w; w = chunk_get_next_free(w)) {
         Chunk_T n;
 
-        if (chunk_get_status(w) != CHUNK_FREE) {
+        if (chunk_get_status(w) != CHUNK_FREE) { //check if there are any non-free chunks in the free list
             fprintf(stderr, "Non-free chunk in the free list\n");
             return FALSE;
         }
-        if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE;
+        if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE; 
 
-        n = chunk_get_adjacent(w, s_heap_lo, s_heap_hi);
+        n = chunk_get_adjacent(w, s_heap_lo, s_heap_hi); // checks if any chunk was forgotten to be coalesced
         if (n != NULL && n == chunk_get_next_free(w)) {
             fprintf(stderr, "Uncoalesced adjacent free chunks\n");
             return FALSE;
