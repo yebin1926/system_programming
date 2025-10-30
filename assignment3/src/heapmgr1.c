@@ -118,7 +118,7 @@ static Chunk_T header_from_payload(void *p)
 
 static Chunk_FT footer_from_payload(void *p)
 {
-    Chunk T header = (Chunk_T)((char *)p - CHUNK_UNIT);
+    Chunk_T header = (Chunk_T)((char *)p - CHUNK_UNIT);
     return get_footer_from_header(header);
 }
 
@@ -145,46 +145,44 @@ static void heap_bootstrap(void)
 static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
 {
     //check: that they're both in the free list?
-
-    /* --- Preconditions & captures (no mutations) --- */
     assert(a != NULL);
     assert(b != NULL);
-    assert(a < b);
+    assert(a != b);
+    assert(s_heap_lo != NULL && s_heap_hi != NULL);
 
-    assert(chunk_is_valid(a, s_heap_lo, s_heap_hi));
-    assert(chunk_is_valid(b, s_heap_lo, s_heap_hi));
+    assert((void*)a >= s_heap_lo && (void*)a < s_heap_hi);
+    assert((void*)b >= s_heap_lo && (void*)b < s_heap_hi);
+
     assert(chunk_get_span_units(a) >= 2);
     assert(chunk_get_span_units(b) >= 2);
 
-    // Adjacency in both directions
+    assert(a < b);
     assert(chunk_get_adjacent(a, s_heap_lo, s_heap_hi) == b);
     assert(chunk_get_prev_adjacent(b, s_heap_lo, s_heap_hi) == a);
+
+    assert(chunk_is_valid(a, s_heap_lo, s_heap_hi));
+    assert(chunk_is_valid(b, s_heap_lo, s_heap_hi));
 
     assert(chunk_get_status(a) == CHUNK_FREE);
     assert(chunk_get_status(b) == CHUNK_FREE);
 
-    {
-        Chunk_T a_prev_free = chunk_get_prev_free(a);
-        // Either a has a prev in list, or it's the head
-        assert(a_prev_free != NULL || a == s_free_head);
+    if (chunk_get_prev_free(b) != NULL)
+        assert(chunk_get_next_free(chunk_get_prev_free(b)) == b);
+    if (chunk_get_next_free(a) != NULL)
+        assert(chunk_get_prev_free(chunk_get_next_free(a)) == a);
 
-        // b shouldn't be the head unless caller updates s_free_head
-        assert(b != s_free_head);
+    Chunk_T old_next_b = chunk_get_next_free(b);
+    if (old_next_b != NULL) {
+        assert(chunk_is_valid(old_next_b, s_heap_lo, s_heap_hi));
+        assert(chunk_get_status(old_next_b) == CHUNK_FREE);
     }
 
-    // Physical and free-list contexts b4 merge
-    Chunk_T old_b_phys_next = chunk_get_adjacent(b, s_heap_lo, s_heap_hi);
-    Chunk_T old_b_next_free = chunk_get_next_free(b);
-    Chunk_T old_a_prev_free = chunk_get_prev_free(a);
+    Chunk_FT a_footer = get_footer_from_header(a);
+    Chunk_FT b_footer = get_footer_from_header(b);
+    assert(a_footer != NULL && b_footer != NULL);
+    assert((void*)a_footer < (void*)b_footer);
+    assert((void*)b_footer <= s_heap_hi);
 
-    // Checking If b is tail of free list
-    assert(old_b_next_free != NULL);
-
-    if (old_b_next_free) {
-        assert(chunk_get_status(old_b_next_free) == CHUNK_FREE);
-    }
-
-    //Performing merge
     chunk_set_span_units(a, chunk_get_span_units(a) + chunk_get_span_units(b));
     chunk_set_next_free(a, chunk_get_next_free(b));
     chunk_set_prev_free(chunk_get_next_free(b), a);
@@ -256,7 +254,7 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
     assert((void*)alloc >= s_heap_lo && (void*)alloc < s_heap_hi);
 
     chunk_set_span_units(alloc, alloc_span);
-    chunk_set_status(alloc, CHUNK_USED)
+    chunk_set_status(alloc, CHUNK_USED);
     /* --- added checks: alloc validity after initializing span/status --- */
     assert(chunk_is_valid(alloc, s_heap_lo, s_heap_hi));
     assert(chunk_get_status(alloc) == CHUNK_USED);
@@ -271,7 +269,7 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
         }
     }
 
-    Chunk_TF footer = get_footer_from_header(c);
+    Chunk_FT footer = (Chunk_FT)get_footer_from_header(c);
     /* --- added checks: footer computed for c lies within heap and after c --- */
     assert(footer != NULL);
     assert((void*)footer > (void*)c);
@@ -300,8 +298,7 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
  * Insert a block 'c' at the head of the free list (address-ordered).
  * If the new head is physically adjacent to the previous head,
  * coalesce them immediately to reduce fragmentation. */
-static void
-freelist_push_front(Chunk_T c)
+static void freelist_push_front(Chunk_T c)
 {
     assert(chunk_get_span_units(c) >= 1);
     chunk_set_status(c, CHUNK_FREE);
