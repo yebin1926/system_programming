@@ -15,16 +15,16 @@
  * - span:   total units, including the header and footer. Span = # of chunk units that one complete memory block occupies
  * - next:   next-free pointer for the singly-linked free list
  */
-struct ChunkHeader {
-    int     status;
-    int     span;
-    Chunk_T next;
-};
+// struct ChunkHeader {
+//     int     status;
+//     int     span;
+//     Chunk_T next;
+// };
 
-struct ChunkFooter {
-    int span;
-    Chunk_T prev;
-};
+// struct ChunkFooter {
+//     int span;
+//     Chunk_T prev;
+// };
 
 /* ----------------------- Getters / Setters ------------------------ */
 int   chunk_get_status(Chunk_T c)                 { 
@@ -93,7 +93,7 @@ void    chunk_set_prev_free(Chunk_T c, Chunk_T p) {
 Chunk_T get_header_from_footer(Chunk_FT f) {
     assert(f != NULL);
     assert(f->span >= 2);
-    Chunk_T h = f - (f->span - 1);
+    Chunk_T h = (Chunk_T)((char*)f - (size_t)(f->span - 1) * (size_t)CHUNK_UNIT);
     /* h may still be NULL if this footer is before heap start; the caller must bounds-check. */
     if(h == NULL) return NULL;
     return h;
@@ -102,7 +102,7 @@ Chunk_T get_header_from_footer(Chunk_FT f) {
 Chunk_FT get_footer_from_header(Chunk_T h) {
     assert(h != NULL);
     assert(h->span >= 2);
-    Chunk_FT f = h + (h->span - 1);
+    Chunk_FT f = (Chunk_FT)((char*)h + (size_t)(h->span - 1) * (size_t)CHUNK_UNIT);
     /* f may still be out-of-bounds; the caller must bounds-check with heap end. */
     if(f == NULL) return NULL;
     return f;
@@ -142,9 +142,10 @@ Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end)
     /* If c is at the very start of the heap, there is no previous block. */
     if ((void*)c <= start) return NULL;
 
-    Chunk_FT prev_footer = c - 1;
+    Chunk_FT prev_footer = (Chunk_FT)((char*)c - (size_t)CHUNK_UNIT);
     assert(prev_footer != NULL);
     assert(prev_footer->span >= 2);
+    if ((void*)prev_footer < start) return NULL;
     p = get_header_from_footer(prev_footer);              /* span includes the header itself */
 
     if ((void *)p < start)

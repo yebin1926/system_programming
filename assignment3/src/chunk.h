@@ -12,9 +12,23 @@
 #include <stdbool.h>
 #include <unistd.h>
 
-typedef struct ChunkHeader *Chunk_T;
+struct ChunkHeader;
+struct ChunkFooter;
 
+typedef struct ChunkHeader *Chunk_T;
 typedef struct ChunkFooter *Chunk_FT;
+
+
+struct ChunkHeader {
+    int     status;  /* CHUNK_FREE or CHUNK_USED */
+    int     span;    /* in UNITS; includes header + footer */
+    Chunk_T next;    /* next free block (header pointer) */
+};
+
+struct ChunkFooter {
+    int     span;    /* mirror span (in UNITS) */
+    Chunk_T prev;    /* prev free block (header pointer) */
+};
 
 /* Status flags */
 enum {
