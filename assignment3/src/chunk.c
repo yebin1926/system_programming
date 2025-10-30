@@ -12,13 +12,14 @@
 
 /* Internal header layout
  * - status: CHUNK_FREE or CHUNK_USED
- * - span:   total units, including the header itself
+ * - span:   total units, including the header and footer. Span = # of chunk units that one complete memory block occupies
  * - next:   next-free pointer for the singly-linked free list
  */
 struct Chunk {
     int     status;
     int     span;
     Chunk_T next;
+    Chunk_T prev;
 };
 
 /* ----------------------- Getters / Setters ------------------------ */
@@ -28,21 +29,22 @@ void  chunk_set_status(Chunk_T c, int status)     { c->status = status; }
 int   chunk_get_span_units(Chunk_T c)             { return c->span; }
 void  chunk_set_span_units(Chunk_T c, int span_u) { c->span = span_u; }
 
-Chunk_T chunk_get_next_free(Chunk_T c)            { return c->next; }
+Chunk_T chunk_get_next_free(Chunk_T c)            { return c->next; } //points to next free block's header
+Chunk_T chunk_get_prev_free(Chunk_T c)            { return c->prev; }
 void    chunk_set_next_free(Chunk_T c, Chunk_T n) { c->next = n; }
+void    chunk_set_prev_free(Chunk_T c, Chunk_T p) { c->prev = p; }
 
 /* chunk_get_adjacent:
  * Compute the next physical block header by jumping 'span' units
  * (1 header + payload) forward from 'c'. If that address falls at or
  * beyond 'end', return NULL to indicate there is no next block. */
-Chunk_T
-chunk_get_adjacent(Chunk_T c, void *start, void *end)
+Chunk_T chunk_get_adjacent(Chunk_T c, void *start, void *end)
 {
     Chunk_T n;
 
     assert((void *)c >= start);
 
-    n = c + c->span;                /* span includes the header itself */
+    n = c + c->span;                /* span includes the header and footer */
 
     if ((void *)n >= end)
         return NULL;
@@ -50,13 +52,26 @@ chunk_get_adjacent(Chunk_T c, void *start, void *end)
     return n;
 }
 
+Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end)
+{
+    Chunk_T p;
+
+    assert((void *)c < end);
+
+    p = c - c->prev->span;                /* span includes the header itself */
+
+    if ((void *)p < start)
+        return NULL;
+
+    return p;
+}
+
 #ifndef NDEBUG
 /* chunk_is_valid:
  * Minimal per-block validity checks used by the heap validator:
  *  - c must lie within [start, end)
  *  - span must be positive (non-zero) */
-int
-chunk_is_valid(Chunk_T c, void *start, void *end)
+int chunk_is_valid(Chunk_T c, void *start, void *end)
 {
     assert(c     != NULL);
     assert(start != NULL);
