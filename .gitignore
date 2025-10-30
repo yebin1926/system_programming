@@ -10,7 +10,6 @@ __pycache__/
 
 # Logs / misc
 *.log
-assignment3/src/heapmgr1.c
 assignment2/matcher3
 assignment2/matcher4
 assignment2/bin/dirtree

@@ -45,11 +45,14 @@ void  chunk_set_span_units(Chunk_T c, int span_u) {
     assert(c != NULL);
     assert(span_u >= 2);
     c->span = span_u; 
+    Chunk_FT f = get_footer_from_header(c);
+    assert(f != NULL);
+    f->span = span_u;
 }
 
 Chunk_T chunk_get_next_free(Chunk_T c)            { 
     assert(c != NULL);
-    /* next may be NULL at the tail; allow that. */
+
     if (c->next == NULL) return NULL;
     assert(c->next != NULL);
     assert(c->next->status == CHUNK_FREE);
@@ -61,7 +64,7 @@ Chunk_T chunk_get_prev_free(Chunk_T c)            {
     assert(c->span >= 2);
     Chunk_FT f = get_footer_from_header(c);
     assert(f != NULL);
-    /* prev may be NULL at the head; allow that. */
+
     if (f->prev == NULL) return NULL;
     assert(f->prev != NULL);
     assert(f->prev->status == CHUNK_FREE);
@@ -70,7 +73,7 @@ Chunk_T chunk_get_prev_free(Chunk_T c)            {
 
 void    chunk_set_next_free(Chunk_T c, Chunk_T n) { 
     assert(c != NULL);
-    /* Allow clearing the link. */
+
     if (n == NULL) { c->next = NULL; return; }
     assert(n != NULL);
     assert(n->status == CHUNK_FREE);
@@ -82,9 +85,9 @@ void    chunk_set_prev_free(Chunk_T c, Chunk_T p) {
     assert(c->span >= 2);
     Chunk_FT f = get_footer_from_header(c);
     assert(f != NULL);
-    /* Allow clearing the link. */
+
     if (p == NULL) { f->prev = NULL; return; }
-    /* The assert below is about the *existing* prev link; add a guard so it doesn't deref NULL */
+    /* adding a guard so existing prev link doesn't deref NULL */
     if (f->prev != NULL) { assert(f->prev->status == CHUNK_FREE); }
     assert(p->status == CHUNK_FREE);
     f->prev = p; 
@@ -94,7 +97,7 @@ Chunk_T get_header_from_footer(Chunk_FT f) {
     assert(f != NULL);
     assert(f->span >= 2);
     Chunk_T h = (Chunk_T)((char*)f - (size_t)(f->span - 1) * (size_t)CHUNK_UNIT);
-    /* h may still be NULL if this footer is before heap start; the caller must bounds-check. */
+    /* h may still be NULL if this footer is before heap start*/
     if(h == NULL) return NULL;
     return h;
 }
@@ -103,7 +106,7 @@ Chunk_FT get_footer_from_header(Chunk_T h) {
     assert(h != NULL);
     assert(h->span >= 2);
     Chunk_FT f = (Chunk_FT)((char*)h + (size_t)(h->span - 1) * (size_t)CHUNK_UNIT);
-    /* f may still be out-of-bounds; the caller must bounds-check with heap end. */
+    /* f may still be out-of-bounds */
     if(f == NULL) return NULL;
     return f;
 }
@@ -139,7 +142,6 @@ Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end)
     assert(end   != NULL);
     assert((void *)c < end);
 
-    /* If c is at the very start of the heap, there is no previous block. */
     if ((void*)c <= start) return NULL;
 
     Chunk_FT prev_footer = (Chunk_FT)((char*)c - (size_t)CHUNK_UNIT);
@@ -163,7 +165,7 @@ int chunk_is_valid(Chunk_T c, void *start, void *end)
     assert(start != NULL);
     assert(end   != NULL);
 
-    /* Span must be at least header + footer, and header must be within bounds. */
+    // Span must be at least header + footer, and header must be within bounds
     if (c->span < 2) { fprintf(stderr, "Span is less than 2\n"); return 0; }
     if (c < (Chunk_T)start) { fprintf(stderr, "Bad heap start (header)\n"); return 0; }
     if (c >= (Chunk_T)end)  { fprintf(stderr, "Bad heap end (header)\n");   return 0; }
@@ -171,24 +173,19 @@ int chunk_is_valid(Chunk_T c, void *start, void *end)
     Chunk_FT footer = get_footer_from_header(c);
     if(footer == NULL) { fprintf(stderr, "Could not find footer\n"); return 0; }
 
-    /* Define local aliases so the original checks below compile and refer to the same objects. */
     Chunk_FT f = footer;
     Chunk_T  C = c;
 
-    /* Footer must also be inside bounds. */
+    // Footer must be inside bounds
     if (f < (Chunk_FT)start) { fprintf(stderr, "Bad heap start (footer)\n"); return 0; }
     if (f >= (Chunk_FT)end)  { fprintf(stderr, "Bad heap end (footer)\n");   return 0; }
 
-    /* Non-positive spans are invalid. */
     if (c->span <= 0 || f->span <= 0) { fprintf(stderr, "Non-positive span\n"); return 0; }
-
-    /* Minimum span must be >= 2 units (header + footer). */
     if (c->span < 2 || f->span < 2) { fprintf(stderr, "Span is less than 2\n"); return 0; }
 
-    /* Header/footer span must agree. */
     if (C->span != footer->span) { fprintf(stderr, "Header and Footer span doesn't align\n"); return 0; }
 
-    /* Optional: sanity that next-adjacent computed from header doesn't step past heap end. */
+    // Checking that next-adjacent computed from header doesn't step past heap end
     {
         Chunk_T next_hdr = c + c->span;
         if ((void*)next_hdr > end) {
