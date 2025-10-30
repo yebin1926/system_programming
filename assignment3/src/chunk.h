@@ -12,17 +12,6 @@
 #include <stdbool.h>
 #include <unistd.h>
 
-/*
-   Representation used in this baseline:
-   - Each *allocated block* consists of one header Chunk (1 unit) and
-     zero or more payload Chunks (N units).
-   - The header stores the *total* number of units (header + payload),
-     called "span". Therefore:
-         span = 1 (header) + payload_units
-   - The free list is a singly-linked list of free blocks ordered by
-     increasing address (non-circular).
-*/
-
 typedef struct ChunkHeader *Chunk_T;
 
 typedef struct ChunkFooter *Chunk_FT;
@@ -46,8 +35,7 @@ int   chunk_get_status(Chunk_T c);
 void  chunk_set_status(Chunk_T c, int status);
 
 /* chunk_get_span_units / chunk_set_span_units:
- * Get/Set the total number of units of the block, including its header.
- * (span = 1 header unit + payload units) */
+ * Get/Set the total number of units of the block, including its header.*/
 int   chunk_get_span_units(Chunk_T c);
 void  chunk_set_span_units(Chunk_T c, int span_units);
 
@@ -61,11 +49,6 @@ void    chunk_set_prev_free(Chunk_T c, Chunk_T prev);
 Chunk_T get_header_from_footer(Chunk_FT f);
 Chunk_FT get_footer_from_header(Chunk_T h);
 
-/* chunk_get_adjacent:
- * Return the physically next adjacent block's header (if any) by walking
- * 'span' units forward from 'c'. Returns NULL if 'c' is the last block.
- * 'start' and 'end' are the inclusive start and exclusive end addresses
- * of the heap region. */
 Chunk_T chunk_get_adjacent(Chunk_T c, void *start, void *end);
 Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end);
 
@@ -78,4 +61,4 @@ int   chunk_is_valid(Chunk_T c, void *start, void *end);
 
 #endif
 
-#endif /* _CHUNK_BASE_H_ */
+#endif /* _CHUNK_H_ */
