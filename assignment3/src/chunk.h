@@ -23,7 +23,9 @@
      increasing address (non-circular).
 */
 
-typedef struct Chunk *Chunk_T;
+typedef struct ChunkHeader *Chunk_T;
+
+typedef struct ChunkFooter *Chunk_FT;
 
 /* Status flags */
 enum {
@@ -33,7 +35,7 @@ enum {
 
 /* Chunk unit size (bytes). This equals sizeof(struct Chunk) in this baseline. */
 enum {
-    CHUNK_UNIT = 24,
+    CHUNK_UNIT = 16,
 };
 
 /* ----------------------- Getters / Setters ------------------------ */
@@ -55,6 +57,9 @@ Chunk_T chunk_get_next_free(Chunk_T c);
 Chunk_T chunk_get_prev_free(Chunk_T c);
 void    chunk_set_next_free(Chunk_T c, Chunk_T next);
 void    chunk_set_prev_free(Chunk_T c, Chunk_T prev);
+
+Chunk_T get_header_from_footer(Chunk_FT f);
+Chunk_FT get_footer_from_header(Chunk_T h);
 
 /* chunk_get_adjacent:
  * Return the physically next adjacent block's header (if any) by walking
