@@ -145,6 +145,8 @@ static void heap_bootstrap(void)
 static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
 {
     //check: that they're both in the free list?
+
+    // ----- All checks ------
     assert(a != NULL);
     assert(b != NULL);
     assert(a != b);
@@ -171,10 +173,10 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
     if (chunk_get_next_free(a) != NULL)
         assert(chunk_get_prev_free(chunk_get_next_free(a)) == a);
 
-    Chunk_T old_next_b = chunk_get_next_free(b);
-    if (old_next_b != NULL) {
-        assert(chunk_is_valid(old_next_b, s_heap_lo, s_heap_hi));
-        assert(chunk_get_status(old_next_b) == CHUNK_FREE);
+    Chunk_T b_next_free = chunk_get_next_free(b);
+    if (b_next_free != NULL) {
+        assert(chunk_is_valid(b_next_free, s_heap_lo, s_heap_hi));
+        assert(chunk_get_status(b_next_free) == CHUNK_FREE);
     }
 
     Chunk_FT a_footer = get_footer_from_header(a);
@@ -183,9 +185,10 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
     assert((void*)a_footer < (void*)b_footer);
     assert((void*)b_footer <= s_heap_hi);
 
+    // ------ Actual code ------
     chunk_set_span_units(a, chunk_get_span_units(a) + chunk_get_span_units(b));
     chunk_set_next_free(a, chunk_get_next_free(b));
-    chunk_set_prev_free(chunk_get_next_free(b), a);
+    chunk_set_prev_free(b_next_free, a);
     return a;
 }
 
@@ -300,19 +303,55 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
  * coalesce them immediately to reduce fragmentation. */
 static void freelist_push_front(Chunk_T c)
 {
-    assert(chunk_get_span_units(c) >= 1);
+    assert(c != NULL);
+    assert(s_heap_lo != NULL && s_heap_hi != NULL);
+    assert((void*)c >= s_heap_lo && (void*)c < s_heap_hi);
+    assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));
+    assert(chunk_get_span_units(c) >= 2);
     chunk_set_status(c, CHUNK_FREE);
 
-    if (s_free_head == NULL) {
+    if (s_free_head == NULL) { //if it's an empty list
         s_free_head = c;
         chunk_set_next_free(c, NULL);
+        chunk_set_prev_free(c, NULL);
+        assert(chunk_get_prev_free(s_free_head) == NULL);
     }
     else {
-        assert(c < s_free_head);
+        assert((void*)s_free_head >= s_heap_lo && (void*)s_free_head < s_heap_hi);
+        assert(chunk_is_valid(s_free_head, s_heap_lo, s_heap_hi));
+        assert(chunk_get_status(s_free_head) == CHUNK_FREE);
+
+        //assert(c < s_free_head);
+        Chunk_T c_next = chunk_get_adjacent(c, s_heap_lo, s_heap_hi);
+        if (c_next && chunk_get_status(c_next) == CHUNK_FREE){ //coalesce if adjacent next is also free
+            assert(chunk_is_valid(c_next, s_heap_lo, s_heap_hi));
+            c = coalesce_two(c, c_next);
+        }
+        assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));
+        assert(chunk_get_status(c) == CHUNK_FREE);
+
+        Chunk_T c_prev = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi); //coalesce if adjacent prev is also free
+        if (c_prev && chunk_get_status(c_prev) == CHUNK_FREE){
+            assert(chunk_is_valid(c_prev, s_heap_lo, s_heap_hi));
+            assert(chunk_get_adjacent(c_prev, s_heap_lo, s_heap_hi) == c);
+            c = coalesce_two(c_prev, c);
+            assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));
+            assert(chunk_get_status(c) == CHUNK_FREE);
+        }
+
+        assert(s_free_head != c);
         chunk_set_next_free(c, s_free_head);
-        if (chunk_get_adjacent(c, s_heap_lo, s_heap_hi) == s_free_head)
-            coalesce_two(c, s_free_head);
+        assert(chunk_is_valid(s_free_head, s_heap_lo, s_heap_hi));
+        assert(chunk_get_status(s_free_head) == CHUNK_FREE);
+        chunk_set_prev_free(s_free_head, c);
+        chunk_set_prev_free(c, NULL);
         s_free_head = c;
+
+        assert(s_free_head == c);
+        assert(chunk_get_prev_free(s_free_head) == NULL);
+        /* if next exists, its prev must be head */
+        if (chunk_get_next_free(s_free_head) != NULL)
+            assert(chunk_get_prev_free(chunk_get_next_free(s_free_head)) == s_free_head);
     }
 }
 
@@ -323,30 +362,34 @@ static void freelist_push_front(Chunk_T c)
  * 'c' is physically adjacent to its neighbors ('e' or the physical
  * successor), coalesce accordingly. Returns the final (possibly merged)
  * block that occupies 'c''s position. */
-static Chunk_T
-freelist_insert_after(Chunk_T e, Chunk_T c)
-{
-    Chunk_T n;
 
-    assert(e < c);
-    assert(chunk_get_status(e) == CHUNK_FREE);
-    assert(chunk_get_status(c) != CHUNK_FREE);
+// static Chunk_T
+// freelist_insert_after(Chunk_T e, Chunk_T c) //only need one param
+// {
+//     Chunk_T n;
 
-    chunk_set_next_free(c, chunk_get_next_free(e));
-    chunk_set_next_free(e, c);
-    chunk_set_status(c, CHUNK_FREE);
+//     assert(e < c);
+//     assert(chunk_get_status(e) == CHUNK_FREE);
+//     assert(chunk_get_status(c) != CHUNK_FREE);
 
-    /* Merge with lower neighbor if adjacent. */
-    if (chunk_get_adjacent(e, s_heap_lo, s_heap_hi) == c)
-        c = coalesce_two(e, c);
+//     chunk_set_next_free(c, chunk_get_next_free(e));
+//     chunk_set_next_free(e, c);
+//     chunk_set_status(c, CHUNK_FREE);
 
-    /* Merge with upper neighbor if that one is free and adjacent. */
-    n = chunk_get_adjacent(c, s_heap_lo, s_heap_hi);
-    if (n != NULL && chunk_get_status(n) == CHUNK_FREE)
-        c = coalesce_two(c, n);
+//     chunk_set_prev_free(chunk_get_next_free(e), c);
+//     chunk_set_prev_free(c, e);
 
-    return c;
-}
+//     /* Merge with lower neighbor if adjacent. */
+//     if (chunk_get_adjacent(e, s_heap_lo, s_heap_hi) == c)
+//         c = coalesce_two(e, c);
+
+//     /* Merge with upper neighbor if that one is free and adjacent. */
+//     n = chunk_get_adjacent(c, s_heap_lo, s_heap_hi);
+//     if (n != NULL && chunk_get_status(n) == CHUNK_FREE)
+//         c = coalesce_two(c, n);
+
+//     return c;
+// }
 
 /*--------------------------------------------------------------------*/
 /* freelist_detach
@@ -354,9 +397,9 @@ freelist_insert_after(Chunk_T e, Chunk_T c)
  * Remove block 'c' from the free list. If 'c' is the head, 'prev'
  * must be NULL; otherwise 'prev' must precede 'c' in the list.
  * The block is marked as CHUNK_USED afterwards. */
-static void
-freelist_detach(Chunk_T prev, Chunk_T c)
+static void freelist_detach(Chunk_T c) //only need one param
 {
+    Chunk_T prev = chunk_get_prev_free(c);
     assert(chunk_get_status(c) == CHUNK_FREE);
 
     if (prev == NULL)
