@@ -66,7 +66,6 @@ Chunk_T chunk_get_prev_free(Chunk_T c)            {
     assert(f != NULL);
 
     if (f->prev == NULL) return NULL;
-    assert(f->prev != NULL);
     assert(f->prev->status == CHUNK_FREE);
     return f->prev; 
 } //points to prev FREE block's header
@@ -75,7 +74,6 @@ void    chunk_set_next_free(Chunk_T c, Chunk_T n) {
     assert(c != NULL);
 
     if (n == NULL) { c->next = NULL; return; }
-    assert(n != NULL);
     assert(n->status == CHUNK_FREE);
     c->next = n; 
 }

@@ -146,6 +146,14 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
 {
     //check: that they're both in the free list?
 
+    if(b < a){ //switch order if b < a
+        Chunk_T temp = a;
+        a = b;
+        b = temp;
+    }
+
+    Chunk_T b_next_free = chunk_get_next_free(b);
+
     // ----- All checks ------
     assert(a != NULL);
     assert(b != NULL);
@@ -158,7 +166,6 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
     assert(chunk_get_span_units(a) >= 2);
     assert(chunk_get_span_units(b) >= 2);
 
-    assert(a < b);
     assert(chunk_get_adjacent(a, s_heap_lo, s_heap_hi) == b);
     assert(chunk_get_prev_adjacent(b, s_heap_lo, s_heap_hi) == a);
 
@@ -173,7 +180,6 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
     if (chunk_get_next_free(a) != NULL)
         assert(chunk_get_prev_free(chunk_get_next_free(a)) == a);
 
-    Chunk_T b_next_free = chunk_get_next_free(b);
     if (b_next_free != NULL) {
         assert(chunk_is_valid(b_next_free, s_heap_lo, s_heap_hi));
         assert(chunk_get_status(b_next_free) == CHUNK_FREE);
@@ -186,9 +192,33 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
     assert((void*)b_footer <= s_heap_hi);
 
     // ------ Actual code ------
+
     chunk_set_span_units(a, chunk_get_span_units(a) + chunk_get_span_units(b));
-    chunk_set_next_free(a, chunk_get_next_free(b));
-    chunk_set_prev_free(b_next_free, a);
+    Chunk_T a_prev_free = chunk_get_prev_free(a);
+
+    if (b == s_free_head) {
+        s_free_head = a;
+        chunk_set_prev_free(a, NULL);   /* head must have prev == NULL */
+    }
+
+    if(chunk_get_next_free(a) != b || chunk_get_prev_free(b) != a){ //if there are other blocks in between a and b in the free list
+        Chunk_T b_btwn = chunk_get_prev_free(b); //block before b in free list
+
+        if (b_btwn) {
+            chunk_set_next_free(b_btwn, b_next_free);
+        } else {
+            /* b was head (or treated as such) → ensure survivor is head */
+            assert(s_free_head == a);
+            assert(chunk_get_prev_free(a) == NULL);
+        }
+
+        if (b_next_free) chunk_set_prev_free(b_next_free, b_btwn ? b_btwn : a);
+    } else {
+        chunk_set_prev_free(a, a_prev_free);
+        chunk_set_next_free(a, chunk_get_next_free(b));
+        if(b_next_free)     chunk_set_prev_free(b_next_free, a);
+    }
+
     return a;
 }
 
@@ -400,14 +430,29 @@ static void freelist_push_front(Chunk_T c)
 static void freelist_detach(Chunk_T c) //only need one param
 {
     Chunk_T prev = chunk_get_prev_free(c);
+    Chunk_T next = chunk_get_next_free(c);
+
     assert(chunk_get_status(c) == CHUNK_FREE);
 
-    if (prev == NULL)
-        s_free_head = chunk_get_next_free(c);
+    if (prev == NULL){
+        s_free_head = next;
+        if (s_free_head != NULL) {
+            chunk_set_prev_free(s_free_head, NULL);
+        }
+    }
     else
         chunk_set_next_free(prev, chunk_get_next_free(c));
+    
+    if(next) {
+        chunk_set_prev_free(next, prev);
+    }
+
+    if (prev != NULL) assert(chunk_get_next_free(prev) == next);
+    if (next != NULL) assert(chunk_get_prev_free(next) == prev);
+    if (s_free_head != NULL) assert(chunk_get_prev_free(s_free_head) == NULL);
 
     chunk_set_next_free(c, NULL);
+    chunk_set_prev_free(c, NULL);
     chunk_set_status(c, CHUNK_USED);
 }
 
@@ -426,12 +471,11 @@ static void freelist_detach(Chunk_T c) //only need one param
  *   - sbrk(grow_span * CHUNK_UNIT) to obtain one big block.
  *   - Temporarily mark it USED (to avoid free-list invariants while
  *     inserting) and then insert/merge into the free list. */
-static Chunk_T
-sys_grow_and_link(Chunk_T prev, size_t need_units)
+static Chunk_T sys_grow_and_link(Chunk_T prev, size_t need_units)
 {
     Chunk_T c;
     size_t grow_data = (need_units < SYS_MIN_ALLOC_UNITS) ? SYS_MIN_ALLOC_UNITS : need_units;
-    size_t grow_span = 1 + grow_data;  /* header + payload units */
+    size_t grow_span = 2 + grow_data;  /* header + payload + footer units */
 
     c = (Chunk_T)sbrk(grow_span * CHUNK_UNIT);
     if (c == (Chunk_T)-1)
