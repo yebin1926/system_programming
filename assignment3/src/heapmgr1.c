@@ -292,7 +292,7 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
     assert(chunk_is_valid(alloc, s_heap_lo, s_heap_hi));
     assert(chunk_get_status(alloc) == CHUNK_USED);
 
-    chunk_set_next_free(alloc, chunk_get_next_free(c));  /* harmless for allocated */
+    // chunk_set_next_free(alloc, chunk_get_next_free(c));  /* harmless for allocated */
 
     /* --- added checks: DLL successor (if any) remains a FREE block --- */
     {
@@ -309,7 +309,7 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
     assert((void*)footer <= s_heap_hi);
 
     chunk_set_prev_free(c, c_prev);
-    chunk_set_prev_free(alloc, c);
+    // chunk_set_prev_free(alloc, c);
 
     /* --- added checks: final adjacency and block validity --- */
     assert(chunk_get_adjacent(c, s_heap_lo, s_heap_hi) == alloc);
@@ -467,11 +467,11 @@ static void freelist_detach(Chunk_T c) //only need one param
  *   need_units : required *payload* units
  *
  * Actions:
- *   - Compute grow_span = 1 + max(need_units, SYS_MIN_ALLOC_UNITS).
+ *   - Compute grow_span = 2 + max(need_units, SYS_MIN_ALLOC_UNITS).
  *   - sbrk(grow_span * CHUNK_UNIT) to obtain one big block.
  *   - Temporarily mark it USED (to avoid free-list invariants while
  *     inserting) and then insert/merge into the free list. */
-static Chunk_T sys_grow_and_link(Chunk_T prev, size_t need_units)
+static Chunk_T sys_grow_and_link(size_t need_units)
 {
     Chunk_T c;
     size_t grow_data = (need_units < SYS_MIN_ALLOC_UNITS) ? SYS_MIN_ALLOC_UNITS : need_units;
@@ -485,13 +485,16 @@ static Chunk_T sys_grow_and_link(Chunk_T prev, size_t need_units)
 
     chunk_set_span_units(c, (int)grow_span);
     chunk_set_next_free(c, NULL);
-    chunk_set_status(c, CHUNK_USED);   /* will flip to FREE once inserted */
+    chunk_set_prev_free(c, NULL);
+    chunk_set_status(c, CHUNK_FREE);   /* will flip to FREE once inserted */
 
-    if (s_free_head == NULL)
-        freelist_push_front(c);
-    else
-        c = freelist_insert_after(prev, c);
-
+    Chunk_T c_prev_adj = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
+    if(c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi) && chunk_get_status(c_prev_adj) == CHUNK_FREE){
+        c = coalesce_two(c_prev_adj, c);
+        assert(check_heap_validity());
+        return c;
+    } 
+    freelist_push_front(c);
     assert(check_heap_validity());
     return c;
 }
@@ -502,65 +505,65 @@ static Chunk_T sys_grow_and_link(Chunk_T prev, size_t need_units)
  * Allocate a block capable of holding 'size' bytes. Zero bytes returns
  * NULL. The allocated region is *uninitialized*. Strategy:
  *  1) Convert 'size' to payload units (no header).
- *  2) First-fit search the free list for a block whose (span-1) >= need.
+ *  2) First-fit search the free list for a block whose (span-2) >= need.
  *  3) If found:
  *       - split if larger than needed; otherwise detach as exact fit.
  *     Else:
  *       - grow the heap and repeat the same split/detach logic.
  *  4) Return the payload pointer (header + 1 unit). */
-void *
-heapmgr_malloc(size_t size)
+void * heapmgr_malloc(size_t size)
 {
-    static int booted = FALSE;
-    Chunk_T cur, prev, prevprev;
-    size_t need_units;
+    static int booted = FALSE; //tracks whether heap was initialized
+    Chunk_T cur, prev, prevprev; //cur: walks free list, prev,prevprev: tracks prev nodes
+    size_t need_units; //requested payload expressed in chunk units
 
-    if (size == 0)
+    if (size == 0) 
         return NULL;
 
-    if (!booted) { heap_bootstrap(); booted = TRUE; }
+    if (!booted) { heap_bootstrap(); booted = TRUE; } //capture the initial program break (sbrk(0)) and set heap bounds.
+    // lazy initialisation (Don’t set up heap until the first call to heapmgr_malloc().)
+    // sbrk(0) returns the current addr just past the end of the process’s data segment (the heap).
 
     assert(check_heap_validity());
 
     need_units = bytes_to_payload_units(size);
-    prevprev = NULL;
-    prev = NULL;
+    // prevprev = NULL;
+    // prev = NULL;
 
-    /* First-fit scan: usable payload units = span - 1 (exclude header). */
-    for (cur = s_free_head; cur != NULL; cur = chunk_get_next_free(cur)) {
-        size_t cur_payload = (size_t)chunk_get_span_units(cur) - 1;
+    /* First-fit scan: usable payload units = span - 2 (exclude header). */
+    for (cur = s_free_head; cur != NULL; cur = chunk_get_next_free(cur)) { //Walk the free list from its head using first-fit.
+        size_t cur_payload = (size_t)chunk_get_span_units(cur) - 2; //For a free block at cur, compute usable payload
 
-        if (cur_payload >= need_units) {
+        if (cur_payload >= need_units) { //if larger or same than needed, split it for alloc
             if (cur_payload > need_units)
                 cur = split_for_alloc(cur, need_units);
-            else
-                freelist_detach(prev, cur);
+            else //if same size, detach it
+                freelist_detach(cur);
 
             assert(check_heap_validity());
-            return (void *)((char *)cur + CHUNK_UNIT);
+            return (void *)((char *)cur + CHUNK_UNIT); //return the payload pointer just past the header 
         }
-        prevprev = prev;
-        prev = cur;
     }
 
+    //none of free blocks fit the needed size:
     /* Need to grow the heap. */
-    cur = sys_grow_and_link(prev, need_units);
+    cur = sys_grow_and_link(need_units);
     if (cur == NULL) {
         assert(check_heap_validity());
         return NULL;
     }
 
     /* If the new block merged with 'prev', back up one step. */
-    if (cur == prev) prev = prevprev;
+    // if (cur == prev) prev = prevprev;
 
     /* Final split/detach on the grown block. */
-    if ((size_t)chunk_get_span_units(cur) - 1 > need_units)
+    if ((size_t)chunk_get_span_units(cur) - 2 > need_units) //	If it’s bigger than needed, split and keep the remainder on the free list.
         cur = split_for_alloc(cur, need_units);
     else
-        freelist_detach(prev, cur);
+        freelist_detach(cur); //Otherwise, detach it as an exact fit.
 
     assert(check_heap_validity());
-    return (void *)((char *)cur + CHUNK_UNIT);
+    return (void *)((char *)cur + CHUNK_UNIT); //return the payload pointer (header + one unit).
 }
 
 /*--------------------------------------------------------------------*/
@@ -573,10 +576,12 @@ heapmgr_malloc(size_t size)
  *  2) Map payload pointer to its header.
  *  3) Find the insertion point in the address-ordered free list.
  *  4) Insert the block and coalesce with adjacent free neighbors. */
-void
-heapmgr_free(void *p)
+void heapmgr_free(void *p)
 {
-    Chunk_T c, it, prev;
+    Chunk_T c;
+
+    assert(s_heap_lo != NULL && s_heap_hi != NULL);                      // heap must be initialized
+    assert((p == NULL) || ((void*)p >= s_heap_lo && (void*)p < s_heap_hi)); // pointer must lie inside heap range
 
     if (p == NULL)
         return;
@@ -584,20 +589,13 @@ heapmgr_free(void *p)
     assert(check_heap_validity());
 
     c = header_from_payload(p);
-    assert(chunk_get_status(c) != CHUNK_FREE);
+    assert(c != NULL);
+    assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));                     // header must be a valid chunk
+    assert(chunk_get_status(c) == CHUNK_USED);                           // cannot free an already-free block
+    assert(chunk_get_next_free(c) == NULL && chunk_get_prev_free(c) == NULL); // must not already be in free list
 
-    /* Find address-ordered insertion point. */
-    prev = NULL;
-    for (it = s_free_head; it != NULL; it = chunk_get_next_free(it)) {
-        if (c < it) break;
-        prev = it;
-    }
+    freelist_push_front(c);
 
-    /* Insert and coalesce. */
-    if (prev == NULL)
-        freelist_push_front(c);
-    else
-        (void)freelist_insert_after(prev, c);
-
+    assert(chunk_get_status(c) == CHUNK_FREE);                           // block should now be marked FREE
     assert(check_heap_validity());
 }
