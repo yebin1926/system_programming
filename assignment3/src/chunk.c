@@ -143,6 +143,7 @@ Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end)
     if ((void*)c <= start) return NULL;
 
     Chunk_FT prev_footer = (Chunk_FT)((char*)c - (size_t)CHUNK_UNIT);
+    if((void*)prev_footer < start) return NULL;
     assert(prev_footer != NULL);
     assert(prev_footer->span >= 2);
     if ((void*)prev_footer < start) return NULL;

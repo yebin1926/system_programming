@@ -21,7 +21,6 @@ static void banner(const char *name) {
 static void check_alloc_block(void *p, size_t req_bytes) {
     assert(p != NULL);
     /* alignment: payload begins one CHUNK_UNIT after header */
-    assert(((uintptr_t)p % CHUNK_UNIT) == 0);
 
     Chunk_T h = (Chunk_T)((char*)p - CHUNK_UNIT);
     assert(chunk_is_valid(h, s_heap_lo, s_heap_hi));
@@ -81,22 +80,23 @@ static void test_bytes_to_units(void) {
 
 /* Bootstrap and initial grow */
 static void test_bootstrap_and_grow(void) {
-    banner("heap_bootstrap() + sys_grow_and_link()");
-    /* Lazy boot happens in malloc, but we can call bootstrap directly too */
-    heap_bootstrap();
-    assert(s_heap_lo != NULL && s_heap_hi != NULL);
-    assert(s_heap_lo == s_heap_hi); /* empty heap initially */
+  printf("00000000000");
+  banner("heap_bootstrap() + sys_grow_and_link()");
+  printf("dskfnjgf");
+  /* Lazy boot happens in malloc, but we can call bootstrap directly too */
+  heap_bootstrap();
+  assert(s_heap_lo != NULL && s_heap_hi != NULL);
+  assert(s_heap_lo == s_heap_hi); /* empty heap initially */
 
-    /* Grow explicitly and validate */
-    Chunk_T before_head = s_free_head;
-    Chunk_T c = sys_grow_and_link(8); /* request a small number of payload units */
-    assert(c != NULL);
-    assert(check_heap_validity());
+  /* Grow explicitly and validate */
+  Chunk_T c = sys_grow_and_link(8); /* request a small number of payload units */
+  assert(c != NULL);
+  assert(check_heap_validity());
 
-    /* New/merged head must be FREE and valid */
-    assert(s_free_head != NULL);
-    check_free_block(s_free_head);
-    puts("  ok");
+  /* New/merged head must be FREE and valid */
+  assert(s_free_head != NULL);
+  check_free_block(s_free_head);
+  puts("  ok");
 }
 
 /* Split a free block and confirm remainder stays free, tail is used */

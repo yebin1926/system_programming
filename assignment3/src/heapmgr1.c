@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include "chunk.h"  /* Provides Chunk_T and span-based header API */
 
@@ -114,12 +115,6 @@ bytes_to_payload_units(size_t bytes)
 static Chunk_T header_from_payload(void *p)
 {
     return (Chunk_T)((char *)p - CHUNK_UNIT);
-}
-
-static Chunk_FT footer_from_payload(void *p)
-{
-    Chunk_T header = (Chunk_T)((char *)p - CHUNK_UNIT);
-    return get_footer_from_header(header);
 }
 
 /*--------------------------------------------------------------------*/
@@ -478,8 +473,10 @@ static Chunk_T sys_grow_and_link(size_t need_units)
     size_t grow_span = 2 + grow_data;  /* header + payload + footer units */
 
     c = (Chunk_T)sbrk(grow_span * CHUNK_UNIT);
-    if (c == (Chunk_T)-1)
-        return NULL;
+    // if (c == (Chunk_T)-1)
+    //     return NULL;
+
+    if ((void*)c == (void*)-1)   return NULL;
 
     s_heap_hi = sbrk(0);
 
@@ -488,7 +485,9 @@ static Chunk_T sys_grow_and_link(size_t need_units)
     chunk_set_prev_free(c, NULL);
     chunk_set_status(c, CHUNK_FREE);   /* will flip to FREE once inserted */
 
+    printf("whyyyyyyyyyy");
     Chunk_T c_prev_adj = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
+    printf("whyyyyyyyyyy whyyyyyy");
     if(c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi) && chunk_get_status(c_prev_adj) == CHUNK_FREE){
         c = coalesce_two(c_prev_adj, c);
         assert(check_heap_validity());
@@ -514,7 +513,7 @@ static Chunk_T sys_grow_and_link(size_t need_units)
 void * heapmgr_malloc(size_t size)
 {
     static int booted = FALSE; //tracks whether heap was initialized
-    Chunk_T cur, prev, prevprev; //cur: walks free list, prev,prevprev: tracks prev nodes
+    Chunk_T cur; //cur: walks free list, prev,prevprev: tracks prev nodes
     size_t need_units; //requested payload expressed in chunk units
 
     if (size == 0) 
