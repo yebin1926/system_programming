@@ -18,6 +18,9 @@ struct ChunkFooter;
 typedef struct ChunkHeader *Chunk_T;
 typedef struct ChunkFooter *Chunk_FT;
 
+extern Chunk_T s_free_head;
+extern void *s_heap_lo;
+extern void *s_heap_hi;
 
 struct ChunkHeader {
     int     status;  /* CHUNK_FREE or CHUNK_USED */

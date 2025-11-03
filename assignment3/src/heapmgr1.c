@@ -19,11 +19,72 @@
 enum { SYS_MIN_ALLOC_UNITS = 1024 };
 
 /* Head of the free list (ordered by ascending address). */
-static Chunk_T s_free_head = NULL;
+Chunk_T s_free_head = NULL;
 
-/* Heap bounds: [s_heap_lo, s_heap_hi).
- * s_heap_hi moves forward whenever the heap grows. */
-static void *s_heap_lo = NULL, *s_heap_hi = NULL;
+/* Heap bounds: [s_heap_lo, s_heap_hi). */
+void *s_heap_lo = NULL, *s_heap_hi = NULL;
+
+int s_heap_booted = FALSE;
+
+//Delete later --start
+#ifndef DEBUG
+#define DEBUG 1
+#endif
+
+#if DEBUG
+  #define DBG(...)  do { fprintf(stderr, __VA_ARGS__); } while (0)
+#else
+  #define DBG(...)  do { } while (0)
+#endif
+
+static inline const char* S(int st){ return st==CHUNK_FREE?"F":"U"; }
+
+/* Print one block’s header/footer info */
+static void dump_block(const char *tag, Chunk_T h) {
+    if (!h) { DBG("%s: NULL\n", tag); return; }
+    Chunk_FT f = get_footer_from_header(h);
+    DBG("%s: H=%p span=%d st=%s F=%p fspan=%s\n",
+        tag, (void*)h, chunk_get_span_units(h), S(chunk_get_status(h)),
+        (void*)f, f ? (f->span==chunk_get_span_units(h)?"ok":"BAD") : "NULL");
+}
+
+/* Physical walk from s_heap_lo to s_heap_hi */
+static void dump_physical(const char *tag) {
+    DBG("\n-- PHYS %s  [lo=%p hi=%p] --\n", tag, s_heap_lo, s_heap_hi);
+    for (Chunk_T w=(Chunk_T)s_heap_lo; w && w<(Chunk_T)s_heap_hi;
+         w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) {
+        Chunk_FT f = get_footer_from_header(w);
+        DBG("  %p: span=%d st=%s  F=%p\n",
+            (void*)w, chunk_get_span_units(w), S(chunk_get_status(w)), (void*)f);
+    }
+    DBG("-- /PHYS --\n");
+}
+
+/* Free list walk from head following next; also verifies symmetry inline */
+static void dump_freelist(const char *tag) {
+    DBG("\n-- FL %s  head=%p --\n", tag, (void*)s_free_head);
+    for (Chunk_T w=s_free_head; w; w=chunk_get_next_free(w)) {
+        Chunk_T nx = chunk_get_next_free(w);
+        Chunk_T pv = chunk_get_prev_free(w);
+        DBG("  %p: span=%d st=%s  prev=%p next=%p\n",
+            (void*)w, chunk_get_span_units(w), S(chunk_get_status(w)),
+            (void*)pv, (void*)nx);
+        if (nx) {
+            if (chunk_get_prev_free(nx) != w)
+                DBG("    !! asym: next->prev != me (next=%p prev_of_next=%p me=%p)\n",
+                    (void*)nx, (void*)chunk_get_prev_free(nx), (void*)w);
+        }
+    }
+    DBG("-- /FL --\n");
+}
+
+/* Call this around sensitive points */
+static void dump_all(const char *tag) {
+    dump_physical(tag);
+    dump_freelist(tag);
+}
+
+//Delete later -- end
 
 /*--------------------------------------------------------------------*/
 /* check_heap_validity
@@ -124,11 +185,13 @@ static Chunk_T header_from_payload(void *p)
  * before any allocation occurs. Exits the process on fatal failure. */
 static void heap_bootstrap(void)
 {
+    if (s_heap_booted) return;
     s_heap_lo = s_heap_hi = sbrk(0);
     if (s_heap_lo == (void *)-1) {
         fprintf(stderr, "sbrk(0) failed\n");
         exit(-1);
     }
+    s_heap_booted = TRUE;
 }
 
 /*--------------------------------------------------------------------*/
@@ -139,7 +202,11 @@ static void heap_bootstrap(void)
  * 'a' is updated to skip 'b'. Returns the merged block 'a'. */
 static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
 {
-    //check: that they're both in the free list?
+    //DELETE LATER --start
+    DBG("\n>> coalesce_two a=%p b=%p\n", (void*)a, (void*)b);
+    dump_block("a.before", a);
+    dump_block("b.before", b);
+    //DELETE LATER --end
 
     if(b < a){ //switch order if b < a
         Chunk_T temp = a;
@@ -214,6 +281,10 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
         if(b_next_free)     chunk_set_prev_free(b_next_free, a);
     }
 
+    //DELETE LATER --start
+    DBG("<< coalesce_two -> %p\n", (void*)a);
+    dump_block("a.after", a);
+
     return a;
 }
 
@@ -238,6 +309,11 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
  * Returns the header pointer of the newly created allocated block. */
 static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
 {
+    //DELETE LATER -- start
+    DBG("\n>> split_for_alloc c=%p need=%zu\n", (void*)c, need_units);
+    dump_block("c.before", c);
+    //DELETE LATER -- end
+
     /* --- added checks: basic preconditions --- */
     assert(c != NULL);
     assert((long)need_units >= 0);
@@ -317,6 +393,11 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
     assert(chunk_get_status(c) == CHUNK_FREE);
     assert(chunk_get_status(alloc) == CHUNK_USED);
 
+    //DELETE LATER --start
+    DBG("<< split_for_alloc  rem(c)=%p alloc=%p\n", (void*)c, (void*)alloc);
+    dump_block("rem.after", c);
+    dump_block("alloc.after", alloc);
+
     return alloc;
 }
 
@@ -328,6 +409,11 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
  * coalesce them immediately to reduce fragmentation. */
 static void freelist_push_front(Chunk_T c)
 {
+    //DELETE LATER --start
+    DBG("\n>> push_front c=%p\n", (void*)c);
+    dump_block("c.before", c);
+    //DELETE LATER --end
+
     assert(c != NULL);
     assert(s_heap_lo != NULL && s_heap_hi != NULL);
     assert((void*)c >= s_heap_lo && (void*)c < s_heap_hi);
@@ -384,6 +470,10 @@ static void freelist_push_front(Chunk_T c)
         if (chunk_get_next_free(s_free_head) != NULL)
             assert(chunk_get_prev_free(chunk_get_next_free(s_free_head)) == s_free_head);
     }
+
+    //DELETE LATER
+    DBG("<< push_front head=%p\n", (void*)s_free_head);
+    dump_freelist("after push_front");
 }
 
 /*--------------------------------------------------------------------*/
@@ -430,6 +520,11 @@ static void freelist_push_front(Chunk_T c)
  * The block is marked as CHUNK_USED afterwards. */
 static void freelist_detach(Chunk_T c) //only need one param
 {
+    //DELETE LATER --start
+    DBG("\n>> detach c=%p\n", (void*)c);
+    dump_block("c.before", c);
+    //DELETE LATER --end
+
     Chunk_T prev = chunk_get_prev_free(c);
     Chunk_T next = chunk_get_next_free(c);
 
@@ -455,6 +550,10 @@ static void freelist_detach(Chunk_T c) //only need one param
     chunk_set_next_free(c, NULL);
     chunk_set_prev_free(c, NULL);
     chunk_set_status(c, CHUNK_USED);
+
+    //DELETE LATER
+    DBG("<< detach head=%p\n", (void*)s_free_head);
+    dump_freelist("after detach");
 }
 
 /*--------------------------------------------------------------------*/
@@ -474,6 +573,9 @@ static void freelist_detach(Chunk_T c) //only need one param
  *     inserting) and then insert/merge into the free list. */
 static Chunk_T sys_grow_and_link(size_t need_units)
 {
+    //DELETE LATER -- one line
+    DBG("\n>> grow need_units=%zu\n", need_units);
+
     Chunk_T c;
     size_t grow_data = (need_units < SYS_MIN_ALLOC_UNITS) ? SYS_MIN_ALLOC_UNITS : need_units;
     size_t grow_span = 2 + grow_data;  /* header + payload + footer units */
@@ -493,6 +595,12 @@ static Chunk_T sys_grow_and_link(size_t need_units)
 
     Chunk_T c_prev_adj = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
 
+    //DELETE LATER --start
+    DBG("   grow got c=%p span=%zu  lo=%p hi=%p\n",
+        (void*)c, grow_span, s_heap_lo, s_heap_hi);
+    dump_block("grown", c);
+    //DELETE LATER --end
+
     if(c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi) && chunk_get_status(c_prev_adj) == CHUNK_FREE){
         c = coalesce_two(c_prev_adj, c);
         assert(check_heap_validity());
@@ -500,6 +608,10 @@ static Chunk_T sys_grow_and_link(size_t need_units)
     } 
     freelist_push_front(c);
     assert(check_heap_validity());
+
+    //DELETE LATER -- one line
+    dump_all("after grow");
+
     return c;
 }
 
@@ -517,14 +629,17 @@ static Chunk_T sys_grow_and_link(size_t need_units)
  *  4) Return the payload pointer (header + 1 unit). */
 void * heapmgr_malloc(size_t size)
 {
-    static int booted = FALSE; //tracks whether heap was initialized
+    // static int booted = FALSE; //tracks whether heap was initialized
     Chunk_T cur; //cur: walks free list, prev,prevprev: tracks prev nodes
     size_t need_units; //requested payload expressed in chunk units
 
     if (size == 0) 
         return NULL;
 
-    if (!booted) { heap_bootstrap(); booted = TRUE; } //capture the initial program break (sbrk(0)) and set heap bounds.
+    //if (!booted) { 
+        heap_bootstrap(); 
+    //    booted = TRUE; 
+    //} //capture the initial program break (sbrk(0)) and set heap bounds.
     // lazy initialisation (Don’t set up heap until the first call to heapmgr_malloc().)
     // sbrk(0) returns the current addr just past the end of the process’s data segment (the heap).
 
@@ -534,10 +649,16 @@ void * heapmgr_malloc(size_t size)
     // prevprev = NULL;
     // prev = NULL;
 
+    //DELETE LATER 
+    DBG("\n>> malloc size=%zu need_units=%zu\n", size, need_units);
+    dump_all("malloc entry");
+
     /* First-fit scan: usable payload units = span - 2 (exclude header). */
     for (cur = s_free_head; cur != NULL; cur = chunk_get_next_free(cur)) { //Walk the free list from its head using first-fit.
         size_t cur_payload = (size_t)chunk_get_span_units(cur) - 2; //For a free block at cur, compute usable payload
-
+        //DELETE LATER
+        DBG("  scan cur=%p span=%d payload=%zu need=%zu\n",
+        (void*)cur, chunk_get_span_units(cur), cur_payload, need_units);
         if (cur_payload >= need_units) { //if larger or same than needed, split it for alloc
             if (cur_payload > need_units)
                 cur = split_for_alloc(cur, need_units);
@@ -556,6 +677,10 @@ void * heapmgr_malloc(size_t size)
         assert(check_heap_validity());
         return NULL;
     }
+
+    //DELETE LATER --2 lines
+    DBG("  after grow cur=%p\n", (void*)cur);
+    dump_all("after grow in malloc");
 
     /* If the new block merged with 'prev', back up one step. */
     // if (cur == prev) prev = prevprev;

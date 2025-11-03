@@ -10,6 +10,19 @@
 
 #include "chunk.h"
 
+//Delete later --start
+#ifndef DEBUG
+#define DEBUG 1
+#endif
+
+#if DEBUG
+  #define DBG(...)  do { fprintf(stderr, __VA_ARGS__); } while (0)
+#else
+  #define DBG(...)  do { } while (0)
+#endif
+
+static inline const char* S_chunk(int st){ return st==CHUNK_FREE?"F":"U"; }
+//Delete later -- end
 
 /* Internal header layout
  * - status: CHUNK_FREE or CHUNK_USED
@@ -125,7 +138,7 @@ Chunk_T chunk_get_adjacent(Chunk_T c, void *start, void *end)
 
     char *next = ((char*)c + (size_t)c->span * (size_t)CHUNK_UNIT);               /* span includes the header and footer */
 
-    if ((void *)next >= end)
+    if (next >= (char*)end)
         return NULL;
 
     return (Chunk_T)next;
@@ -186,7 +199,7 @@ int chunk_is_valid(Chunk_T c, void *start, void *end)
     // Checking that next-adjacent computed from header doesn't step past heap end
     {
         char *next_hdr = ((char*)c + (size_t)c->span * (size_t)CHUNK_UNIT);
-        if ((void*)next_hdr > end) {
+        if (next_hdr > (char*)end) {
             fprintf(stderr, "Adjacency walks past heap end\n");
             return 0;
         }
