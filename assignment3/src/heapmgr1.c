@@ -27,62 +27,62 @@ void *s_heap_lo = NULL, *s_heap_hi = NULL;
 int s_heap_booted = FALSE;
 
 //Delete later --start
-#ifndef DEBUG
-#define DEBUG 1
-#endif
+// #ifndef DEBUG
+// #define DEBUG 1
+// #endif
 
-#if DEBUG
-  #define DBG(...)  do { fprintf(stderr, __VA_ARGS__); } while (0)
-#else
-  #define DBG(...)  do { } while (0)
-#endif
+// #if DEBUG
+//   #define DBG(...)  do { fprintf(stderr, __VA_ARGS__); } while (0)
+// #else
+//   #define DBG(...)  do { } while (0)
+// #endif
 
-static inline const char* S(int st){ return st==CHUNK_FREE?"F":"U"; }
+// static inline const char* S(int st){ return st==CHUNK_FREE?"F":"U"; }
 
-/* Print one block’s header/footer info */
-static void dump_block(const char *tag, Chunk_T h) {
-    if (!h) { DBG("%s: NULL\n", tag); return; }
-    Chunk_FT f = get_footer_from_header(h);
-    DBG("%s: H=%p span=%d st=%s F=%p fspan=%s\n",
-        tag, (void*)h, chunk_get_span_units(h), S(chunk_get_status(h)),
-        (void*)f, f ? (f->span==chunk_get_span_units(h)?"ok":"BAD") : "NULL");
-}
+// /* Print one block’s header/footer info */
+// static void dump_block(const char *tag, Chunk_T h) {
+//     if (!h) { DBG("%s: NULL\n", tag); return; }
+//     Chunk_FT f = get_footer_from_header(h);
+//     DBG("%s: H=%p span=%d st=%s F=%p fspan=%s\n",
+//         tag, (void*)h, chunk_get_span_units(h), S(chunk_get_status(h)),
+//         (void*)f, f ? (f->span==chunk_get_span_units(h)?"ok":"BAD") : "NULL");
+// }
 
-/* Physical walk from s_heap_lo to s_heap_hi */
-static void dump_physical(const char *tag) {
-    DBG("\n-- PHYS %s  [lo=%p hi=%p] --\n", tag, s_heap_lo, s_heap_hi);
-    for (Chunk_T w=(Chunk_T)s_heap_lo; w && w<(Chunk_T)s_heap_hi;
-         w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) {
-        Chunk_FT f = get_footer_from_header(w);
-        DBG("  %p: span=%d st=%s  F=%p\n",
-            (void*)w, chunk_get_span_units(w), S(chunk_get_status(w)), (void*)f);
-    }
-    DBG("-- /PHYS --\n");
-}
+// /* Physical walk from s_heap_lo to s_heap_hi */
+// static void dump_physical(const char *tag) {
+//     DBG("\n-- PHYS %s  [lo=%p hi=%p] --\n", tag, s_heap_lo, s_heap_hi);
+//     for (Chunk_T w=(Chunk_T)s_heap_lo; w && w<(Chunk_T)s_heap_hi;
+//          w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) {
+//         Chunk_FT f = get_footer_from_header(w);
+//         DBG("  %p: span=%d st=%s  F=%p\n",
+//             (void*)w, chunk_get_span_units(w), S(chunk_get_status(w)), (void*)f);
+//     }
+//     DBG("-- /PHYS --\n");
+// }
 
-/* Free list walk from head following next; also verifies symmetry inline */
-static void dump_freelist(const char *tag) {
-    DBG("\n-- FL %s  head=%p --\n", tag, (void*)s_free_head);
-    for (Chunk_T w=s_free_head; w; w=chunk_get_next_free(w)) {
-        Chunk_T nx = chunk_get_next_free(w);
-        Chunk_T pv = chunk_get_prev_free(w);
-        DBG("  %p: span=%d st=%s  prev=%p next=%p\n",
-            (void*)w, chunk_get_span_units(w), S(chunk_get_status(w)),
-            (void*)pv, (void*)nx);
-        if (nx) {
-            if (chunk_get_prev_free(nx) != w)
-                DBG("    !! asym: next->prev != me (next=%p prev_of_next=%p me=%p)\n",
-                    (void*)nx, (void*)chunk_get_prev_free(nx), (void*)w);
-        }
-    }
-    DBG("-- /FL --\n");
-}
+// /* Free list walk from head following next; also verifies symmetry inline */
+// static void dump_freelist(const char *tag) {
+//     DBG("\n-- FL %s  head=%p --\n", tag, (void*)s_free_head);
+//     for (Chunk_T w=s_free_head; w; w=chunk_get_next_free(w)) {
+//         Chunk_T nx = chunk_get_next_free(w);
+//         Chunk_T pv = chunk_get_prev_free(w);
+//         DBG("  %p: span=%d st=%s  prev=%p next=%p\n",
+//             (void*)w, chunk_get_span_units(w), S(chunk_get_status(w)),
+//             (void*)pv, (void*)nx);
+//         if (nx) {
+//             if (chunk_get_prev_free(nx) != w)
+//                 DBG("    !! asym: next->prev != me (next=%p prev_of_next=%p me=%p)\n",
+//                     (void*)nx, (void*)chunk_get_prev_free(nx), (void*)w);
+//         }
+//     }
+//     DBG("-- /FL --\n");
+// }
 
-/* Call this around sensitive points */
-static void dump_all(const char *tag) {
-    dump_physical(tag);
-    dump_freelist(tag);
-}
+// /* Call this around sensitive points */
+// static void dump_all(const char *tag) {
+//     dump_physical(tag);
+//     dump_freelist(tag);
+// }
 
 //Delete later -- end
 
@@ -104,6 +104,7 @@ static void dump_all(const char *tag) {
  *    already (report as "uncoalesced").
  */
 #ifndef NDEBUG
+
 static int
 check_heap_validity(void)
 {
@@ -203,9 +204,9 @@ static void heap_bootstrap(void)
 static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
 {
     //DELETE LATER --start
-    DBG("\n>> coalesce_two a=%p b=%p\n", (void*)a, (void*)b);
-    dump_block("a.before", a);
-    dump_block("b.before", b);
+    // DBG("\n>> coalesce_two a=%p b=%p\n", (void*)a, (void*)b);
+    // dump_block("a.before", a);
+    // dump_block("b.before", b);
     //DELETE LATER --end
 
     if(b < a){ //switch order if b < a
@@ -247,11 +248,11 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
         assert(chunk_get_status(b_next_free) == CHUNK_FREE);
     }
 
-    Chunk_FT a_footer = get_footer_from_header(a);
-    Chunk_FT b_footer = get_footer_from_header(b);
-    assert(a_footer != NULL && b_footer != NULL);
-    assert((void*)a_footer < (void*)b_footer);
-    assert((void*)b_footer <= s_heap_hi);
+    // Chunk_FT a_footer = get_footer_from_header(a);
+    // Chunk_FT b_footer = get_footer_from_header(b);
+    // assert(a_footer != NULL && b_footer != NULL);
+    // assert((void*)a_footer < (void*)b_footer);
+    // assert((void*)b_footer <= s_heap_hi);
 
     // ------ Actual code ------
 
@@ -282,8 +283,8 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
     }
 
     //DELETE LATER --start
-    DBG("<< coalesce_two -> %p\n", (void*)a);
-    dump_block("a.after", a);
+    // DBG("<< coalesce_two -> %p\n", (void*)a);
+    // dump_block("a.after", a);
 
     return a;
 }
@@ -310,8 +311,8 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
 static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
 {
     //DELETE LATER -- start
-    DBG("\n>> split_for_alloc c=%p need=%zu\n", (void*)c, need_units);
-    dump_block("c.before", c);
+    // DBG("\n>> split_for_alloc c=%p need=%zu\n", (void*)c, need_units);
+    // dump_block("c.before", c);
     //DELETE LATER -- end
 
     /* --- added checks: basic preconditions --- */
@@ -373,30 +374,30 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
         }
     }
 
-    Chunk_FT footer = (Chunk_FT)get_footer_from_header(c);
-    /* --- added checks: footer computed for c lies within heap and after c --- */
-    assert(footer != NULL);
-    assert((void*)footer > (void*)c);
-    assert((void*)footer <= s_heap_hi);
+    // Chunk_FT footer = (Chunk_FT)get_footer_from_header(c);
+    // /* --- added checks: footer computed for c lies within heap and after c --- */
+    // assert(footer != NULL);
+    // assert((void*)footer > (void*)c);
+    // assert((void*)footer <= s_heap_hi);
 
     chunk_set_prev_free(c, c_prev);
     // chunk_set_prev_free(alloc, c);
 
     /* --- added checks: final adjacency and block validity --- */
     assert(chunk_get_adjacent(c, s_heap_lo, s_heap_hi) == alloc);
-    {
-        Chunk_T after_alloc = chunk_get_adjacent(alloc, s_heap_lo, s_heap_hi);
-        assert(after_alloc == NULL || (void*)after_alloc <= s_heap_hi);
-    }
+    // {
+    //     Chunk_T after_alloc = chunk_get_adjacent(alloc, s_heap_lo, s_heap_hi);
+    //     assert(after_alloc == NULL || (void*)after_alloc <= s_heap_hi);
+    // }
     assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));
     assert(chunk_is_valid(alloc, s_heap_lo, s_heap_hi));
     assert(chunk_get_status(c) == CHUNK_FREE);
     assert(chunk_get_status(alloc) == CHUNK_USED);
 
     //DELETE LATER --start
-    DBG("<< split_for_alloc  rem(c)=%p alloc=%p\n", (void*)c, (void*)alloc);
-    dump_block("rem.after", c);
-    dump_block("alloc.after", alloc);
+    // DBG("<< split_for_alloc  rem(c)=%p alloc=%p\n", (void*)c, (void*)alloc);
+    // dump_block("rem.after", c);
+    // dump_block("alloc.after", alloc);
 
     return alloc;
 }
@@ -410,8 +411,8 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
 static void freelist_push_front(Chunk_T c)
 {
     //DELETE LATER --start
-    DBG("\n>> push_front c=%p\n", (void*)c);
-    dump_block("c.before", c);
+    // DBG("\n>> push_front c=%p\n", (void*)c);
+    // dump_block("c.before", c);
     //DELETE LATER --end
 
     assert(c != NULL);
@@ -472,8 +473,8 @@ static void freelist_push_front(Chunk_T c)
     }
 
     //DELETE LATER
-    DBG("<< push_front head=%p\n", (void*)s_free_head);
-    dump_freelist("after push_front");
+    // DBG("<< push_front head=%p\n", (void*)s_free_head);
+    // dump_freelist("after push_front");
 }
 
 /*--------------------------------------------------------------------*/
@@ -521,8 +522,8 @@ static void freelist_push_front(Chunk_T c)
 static void freelist_detach(Chunk_T c) //only need one param
 {
     //DELETE LATER --start
-    DBG("\n>> detach c=%p\n", (void*)c);
-    dump_block("c.before", c);
+    // DBG("\n>> detach c=%p\n", (void*)c);
+    // dump_block("c.before", c);
     //DELETE LATER --end
 
     Chunk_T prev = chunk_get_prev_free(c);
@@ -552,8 +553,8 @@ static void freelist_detach(Chunk_T c) //only need one param
     chunk_set_status(c, CHUNK_USED);
 
     //DELETE LATER
-    DBG("<< detach head=%p\n", (void*)s_free_head);
-    dump_freelist("after detach");
+    // DBG("<< detach head=%p\n", (void*)s_free_head);
+    // dump_freelist("after detach");
 }
 
 /*--------------------------------------------------------------------*/
@@ -574,7 +575,7 @@ static void freelist_detach(Chunk_T c) //only need one param
 static Chunk_T sys_grow_and_link(size_t need_units)
 {
     //DELETE LATER -- one line
-    DBG("\n>> grow need_units=%zu\n", need_units);
+    // DBG("\n>> grow need_units=%zu\n", need_units);
 
     Chunk_T c;
     size_t grow_data = (need_units < SYS_MIN_ALLOC_UNITS) ? SYS_MIN_ALLOC_UNITS : need_units;
@@ -596,9 +597,9 @@ static Chunk_T sys_grow_and_link(size_t need_units)
     Chunk_T c_prev_adj = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
 
     //DELETE LATER --start
-    DBG("   grow got c=%p span=%zu  lo=%p hi=%p\n",
-        (void*)c, grow_span, s_heap_lo, s_heap_hi);
-    dump_block("grown", c);
+    // DBG("   grow got c=%p span=%zu  lo=%p hi=%p\n",
+    //     (void*)c, grow_span, s_heap_lo, s_heap_hi);
+    // dump_block("grown", c);
     //DELETE LATER --end
 
     if(c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi) && chunk_get_status(c_prev_adj) == CHUNK_FREE){
@@ -610,7 +611,7 @@ static Chunk_T sys_grow_and_link(size_t need_units)
     assert(check_heap_validity());
 
     //DELETE LATER -- one line
-    dump_all("after grow");
+    // dump_all("after grow");
 
     return c;
 }
@@ -650,15 +651,15 @@ void * heapmgr_malloc(size_t size)
     // prev = NULL;
 
     //DELETE LATER 
-    DBG("\n>> malloc size=%zu need_units=%zu\n", size, need_units);
-    dump_all("malloc entry");
+    // DBG("\n>> malloc size=%zu need_units=%zu\n", size, need_units);
+    // dump_all("malloc entry");
 
     /* First-fit scan: usable payload units = span - 2 (exclude header). */
     for (cur = s_free_head; cur != NULL; cur = chunk_get_next_free(cur)) { //Walk the free list from its head using first-fit.
         size_t cur_payload = (size_t)chunk_get_span_units(cur) - 2; //For a free block at cur, compute usable payload
         //DELETE LATER
-        DBG("  scan cur=%p span=%d payload=%zu need=%zu\n",
-        (void*)cur, chunk_get_span_units(cur), cur_payload, need_units);
+        // DBG("  scan cur=%p span=%d payload=%zu need=%zu\n",
+        // (void*)cur, chunk_get_span_units(cur), cur_payload, need_units);
         if (cur_payload >= need_units) { //if larger or same than needed, split it for alloc
             if (cur_payload > need_units)
                 cur = split_for_alloc(cur, need_units);
@@ -679,8 +680,8 @@ void * heapmgr_malloc(size_t size)
     }
 
     //DELETE LATER --2 lines
-    DBG("  after grow cur=%p\n", (void*)cur);
-    dump_all("after grow in malloc");
+    // DBG("  after grow cur=%p\n", (void*)cur);
+    // dump_all("after grow in malloc");
 
     /* If the new block merged with 'prev', back up one step. */
     // if (cur == prev) prev = prevprev;

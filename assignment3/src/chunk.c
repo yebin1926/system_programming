@@ -10,19 +10,19 @@
 
 #include "chunk.h"
 
-//Delete later --start
-#ifndef DEBUG
-#define DEBUG 1
-#endif
+// //Delete later --start
+// #ifndef DEBUG
+// #define DEBUG 1
+// #endif
 
-#if DEBUG
-  #define DBG(...)  do { fprintf(stderr, __VA_ARGS__); } while (0)
-#else
-  #define DBG(...)  do { } while (0)
-#endif
+// #if DEBUG
+//   #define DBG(...)  do { fprintf(stderr, __VA_ARGS__); } while (0)
+// #else
+//   #define DBG(...)  do { } while (0)
+// #endif
 
-static inline const char* S_chunk(int st){ return st==CHUNK_FREE?"F":"U"; }
-//Delete later -- end
+// static inline const char* S_chunk(int st){ return st==CHUNK_FREE?"F":"U"; }
+// //Delete later -- end
 
 /* Internal header layout
  * - status: CHUNK_FREE or CHUNK_USED
@@ -167,7 +167,7 @@ Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end)
     return p;
 }
 
-#ifndef NDEBUG
+// #ifndef NDEBUG
 
 
 int chunk_is_valid(Chunk_T c, void *start, void *end)
@@ -207,4 +207,4 @@ int chunk_is_valid(Chunk_T c, void *start, void *end)
 
     return 1;
 }
-#endif
+// #endif

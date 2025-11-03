@@ -74,8 +74,9 @@ Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end);
 
 /* chunk_is_valid:
  * Return 1 iff 'c' lies within [start, end) and has a positive span. */
-int   chunk_is_valid(Chunk_T c, void *start, void *end);
 
 #endif
 
 #endif /* _CHUNK_H_ */
+
+int   chunk_is_valid(Chunk_T c, void *start, void *end);
