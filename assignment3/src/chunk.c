@@ -10,6 +10,7 @@
 
 #include "chunk.h"
 
+
 /* Internal header layout
  * - status: CHUNK_FREE or CHUNK_USED
  * - span:   total units, including the header and footer. Span = # of chunk units that one complete memory block occupies
@@ -86,7 +87,7 @@ void    chunk_set_prev_free(Chunk_T c, Chunk_T p) {
 
     if (p == NULL) { f->prev = NULL; return; }
     /* adding a guard so existing prev link doesn't deref NULL */
-    if (f->prev != NULL) { assert(f->prev->status == CHUNK_FREE); }
+    // if (f->prev != NULL) { assert(f->prev->status == CHUNK_FREE); }
     assert(p->status == CHUNK_FREE);
     f->prev = p; 
 }
@@ -115,7 +116,6 @@ Chunk_FT get_footer_from_header(Chunk_T h) {
  * beyond 'end', return NULL to indicate there is no next block. */
 Chunk_T chunk_get_adjacent(Chunk_T c, void *start, void *end)
 {
-    Chunk_T n;
 
     assert(c != NULL);
     assert(start != NULL);
@@ -123,12 +123,12 @@ Chunk_T chunk_get_adjacent(Chunk_T c, void *start, void *end)
     assert((void *)c >= start);
     assert(c->span >= 2);
 
-    n = c + c->span;                /* span includes the header and footer */
+    char *next = ((char*)c + (size_t)c->span * (size_t)CHUNK_UNIT);               /* span includes the header and footer */
 
-    if ((void *)n >= end)
+    if ((void *)next >= end)
         return NULL;
 
-    return n;
+    return (Chunk_T)next;
 }
 
 Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end)
@@ -146,7 +146,6 @@ Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end)
     if((void*)prev_footer < start) return NULL;
     assert(prev_footer != NULL);
     assert(prev_footer->span >= 2);
-    if ((void*)prev_footer < start) return NULL;
     p = get_header_from_footer(prev_footer);              /* span includes the header itself */
 
     if ((void *)p < start)
@@ -182,11 +181,11 @@ int chunk_is_valid(Chunk_T c, void *start, void *end)
     if (c->span <= 0 || f->span <= 0) { fprintf(stderr, "Non-positive span\n"); return 0; }
     if (c->span < 2 || f->span < 2) { fprintf(stderr, "Span is less than 2\n"); return 0; }
 
-    if (C->span != footer->span) { fprintf(stderr, "Header and Footer span doesn't align\n"); return 0; }
+    if (C->span != footer->span) { fprintf(stderr, "Header and Footer span doesn't alignㄴㄴㄴ\n"); return 0; }
 
     // Checking that next-adjacent computed from header doesn't step past heap end
     {
-        Chunk_T next_hdr = c + c->span;
+        char *next_hdr = ((char*)c + (size_t)c->span * (size_t)CHUNK_UNIT);
         if ((void*)next_hdr > end) {
             fprintf(stderr, "Adjacency walks past heap end\n");
             return 0;

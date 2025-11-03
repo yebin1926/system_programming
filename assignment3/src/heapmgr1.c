@@ -333,7 +333,8 @@ static void freelist_push_front(Chunk_T c)
     assert((void*)c >= s_heap_lo && (void*)c < s_heap_hi);
     assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));
     assert(chunk_get_span_units(c) >= 2);
-    chunk_set_status(c, CHUNK_FREE);
+
+    chunk_set_status(c, CHUNK_FREE); //set c as free chunk
 
     if (s_free_head == NULL) { //if it's an empty list
         s_free_head = c;
@@ -341,7 +342,7 @@ static void freelist_push_front(Chunk_T c)
         chunk_set_prev_free(c, NULL);
         assert(chunk_get_prev_free(s_free_head) == NULL);
     }
-    else {
+    else { //if not an empty list,
         assert((void*)s_free_head >= s_heap_lo && (void*)s_free_head < s_heap_hi);
         assert(chunk_is_valid(s_free_head, s_heap_lo, s_heap_hi));
         assert(chunk_get_status(s_free_head) == CHUNK_FREE);
@@ -364,11 +365,16 @@ static void freelist_push_front(Chunk_T c)
             assert(chunk_get_status(c) == CHUNK_FREE);
         }
 
-        assert(s_free_head != c);
-        chunk_set_next_free(c, s_free_head);
-        assert(chunk_is_valid(s_free_head, s_heap_lo, s_heap_hi));
-        assert(chunk_get_status(s_free_head) == CHUNK_FREE);
-        chunk_set_prev_free(s_free_head, c);
+        if (s_free_head != c) {                 //c might be head after coalesce
+            chunk_set_next_free(c, s_free_head);
+            assert(chunk_is_valid(s_free_head, s_heap_lo, s_heap_hi));
+            assert(chunk_get_status(s_free_head) == CHUNK_FREE);
+            chunk_set_prev_free(s_free_head, c);
+        } else {
+            //if we’re reusing the same head, its next/prev are already fine
+            chunk_set_next_free(c, chunk_get_next_free(s_free_head));
+        }
+        
         chunk_set_prev_free(c, NULL);
         s_free_head = c;
 
@@ -483,11 +489,10 @@ static Chunk_T sys_grow_and_link(size_t need_units)
     chunk_set_span_units(c, (int)grow_span);
     chunk_set_next_free(c, NULL);
     chunk_set_prev_free(c, NULL);
-    chunk_set_status(c, CHUNK_FREE);   /* will flip to FREE once inserted */
+    chunk_set_status(c, CHUNK_FREE);   /* will fsslip to FREE once inserted */
 
-    printf("whyyyyyyyyyy");
     Chunk_T c_prev_adj = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
-    printf("whyyyyyyyyyy whyyyyyy");
+
     if(c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi) && chunk_get_status(c_prev_adj) == CHUNK_FREE){
         c = coalesce_two(c_prev_adj, c);
         assert(check_heap_validity());

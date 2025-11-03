@@ -80,9 +80,7 @@ static void test_bytes_to_units(void) {
 
 /* Bootstrap and initial grow */
 static void test_bootstrap_and_grow(void) {
-  printf("00000000000");
   banner("heap_bootstrap() + sys_grow_and_link()");
-  printf("dskfnjgf");
   /* Lazy boot happens in malloc, but we can call bootstrap directly too */
   heap_bootstrap();
   assert(s_heap_lo != NULL && s_heap_hi != NULL);
