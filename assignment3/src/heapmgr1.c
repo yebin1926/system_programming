@@ -195,6 +195,8 @@ static void heap_bootstrap(void)
     s_heap_booted = TRUE;
 }
 
+
+
 /*--------------------------------------------------------------------*/
 /* coalesce_two
  *
@@ -423,16 +425,21 @@ static void freelist_push_front(Chunk_T c)
 
     chunk_set_status(c, CHUNK_FREE); //set c as free chunk
 
-    if (s_free_head == NULL) { //if it's an empty list
-        s_free_head = c;
-        chunk_set_next_free(c, NULL);
-        chunk_set_prev_free(c, NULL);
-        assert(chunk_get_prev_free(s_free_head) == NULL);
-    }
-    else { //if not an empty list,
-        assert((void*)s_free_head >= s_heap_lo && (void*)s_free_head < s_heap_hi);
-        assert(chunk_is_valid(s_free_head, s_heap_lo, s_heap_hi));
-        assert(chunk_get_status(s_free_head) == CHUNK_FREE);
+    chunk_set_prev_free(c, NULL);
+    chunk_set_next_free(c, s_free_head);
+    if (s_free_head) chunk_set_prev_free(s_free_head, c);
+    s_free_head = c;
+
+    // if (s_free_head == NULL) { //if it's an empty list
+    //     s_free_head = c;
+    //     chunk_set_next_free(c, NULL);
+    //     chunk_set_prev_free(c, NULL);
+    //     assert(chunk_get_prev_free(s_free_head) == NULL);
+    // }
+    // else { //if not an empty list,
+    //     assert((void*)s_free_head >= s_heap_lo && (void*)s_free_head < s_heap_hi);
+    //     assert(chunk_is_valid(s_free_head, s_heap_lo, s_heap_hi));
+    //     assert(chunk_get_status(s_free_head) == CHUNK_FREE);
 
         //assert(c < s_free_head);
         Chunk_T c_next = chunk_get_adjacent(c, s_heap_lo, s_heap_hi);
@@ -452,25 +459,28 @@ static void freelist_push_front(Chunk_T c)
             assert(chunk_get_status(c) == CHUNK_FREE);
         }
 
-        if (s_free_head != c) {                 //c might be head after coalesce
-            chunk_set_next_free(c, s_free_head);
-            assert(chunk_is_valid(s_free_head, s_heap_lo, s_heap_hi));
-            assert(chunk_get_status(s_free_head) == CHUNK_FREE);
-            chunk_set_prev_free(s_free_head, c);
-        } else {
-            //if we’re reusing the same head, its next/prev are already fine
-            chunk_set_next_free(c, chunk_get_next_free(s_free_head));
-        }
-        
-        chunk_set_prev_free(c, NULL);
-        s_free_head = c;
-
-        assert(s_free_head == c);
+        assert(s_free_head != NULL);
         assert(chunk_get_prev_free(s_free_head) == NULL);
-        /* if next exists, its prev must be head */
-        if (chunk_get_next_free(s_free_head) != NULL)
-            assert(chunk_get_prev_free(chunk_get_next_free(s_free_head)) == s_free_head);
-    }
+
+        // if (s_free_head != c) {                 //c might be head after coalesce
+        //     chunk_set_next_free(c, s_free_head);
+        //     assert(chunk_is_valid(s_free_head, s_heap_lo, s_heap_hi));
+        //     assert(chunk_get_status(s_free_head) == CHUNK_FREE);
+        //     chunk_set_prev_free(s_free_head, c);
+        // } else {
+        //     //if we’re reusing the same head, its next/prev are already fine
+        //     chunk_set_next_free(c, chunk_get_next_free(s_free_head));
+        // }
+        
+        // chunk_set_prev_free(c, NULL);
+        // s_free_head = c;
+
+        // assert(s_free_head == c);
+        // assert(chunk_get_prev_free(s_free_head) == NULL);
+        // /* if next exists, its prev must be head */
+        // if (chunk_get_next_free(s_free_head) != NULL)
+        //     assert(chunk_get_prev_free(chunk_get_next_free(s_free_head)) == s_free_head);
+    //}
 
     //DELETE LATER
     // DBG("<< push_front head=%p\n", (void*)s_free_head);
