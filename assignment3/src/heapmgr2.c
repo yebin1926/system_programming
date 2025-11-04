@@ -349,11 +349,11 @@ void * heapmgr_malloc(size_t size)
     /* First-fit scan: usable payload units = span - 2 (exclude header). */
     int bin_index = get_bin_index(2 + (int)need_units);
     for(int i = bin_index; i < NUM_BINS; i++){
-        for (cur = s_bins[bin_index]; cur != NULL; cur = chunk_get_next_free(cur)) {
+        for (cur = s_bins[i]; cur != NULL; cur = chunk_get_next_free(cur)) {
             size_t cur_payload = (size_t)chunk_get_span_units(cur) - 2;
-            bin_detach(cur);
 
             if (cur_payload >= need_units) {                     // accept exact fit too
+                bin_detach(cur);
                 if ((size_t)chunk_get_span_units(cur) >= (size_t)(2 + need_units + 2)) {
                     Chunk_T alloc = split_for_alloc(cur, need_units);      // split only if remainder >= 2 units (H+F)
                     chunk_set_status(alloc, CHUNK_USED);
@@ -379,13 +379,15 @@ void * heapmgr_malloc(size_t size)
     bin_detach(cur);
     //Final split/detach on the grown block
     if ((size_t)chunk_get_span_units(cur) >= (size_t)(2 + need_units + 2)) {
-        cur = split_for_alloc(cur, need_units);
-        chunk_set_status(cur, CHUNK_USED);
-        bin_insert(cur);
+        Chunk_T alloc = split_for_alloc(g, need_units);
+        chunk_set_status(alloc, CHUNK_USED);
+        bin_insert(cur);                                 // re-bin remainder
+        return (char*)alloc + CHUNK_UNIT;
     } else {
         chunk_set_status(cur, CHUNK_USED);
+        return (char*)cur + CHUNK_UNIT;
     }
-    return (void *)((char *)cur + CHUNK_UNIT); //return the payload pointer (header + one unit).
+    // return (void *)((char *)cur + CHUNK_UNIT); //return the payload pointer (header + one unit).
 }
 
 
