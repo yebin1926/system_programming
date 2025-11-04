@@ -269,8 +269,8 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
     assert(chunk_get_prev_adjacent(b, s_heap_lo, s_heap_hi) == a);
 
     /* If a->next is b, we'll stitch to b->next after unlink */
-    Chunk_T an = chunk_get_next_free(a);
-    Chunk_T bn = chunk_get_next_free(b);
+    // Chunk_T an = chunk_get_next_free(a);
+    // Chunk_T bn = chunk_get_next_free(b);
 
     // /* Remove b from free list first (no status change). */
     // bin_detach(b);
@@ -279,9 +279,11 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
     chunk_set_span_units(a, chunk_get_span_units(a) + chunk_get_span_units(b));
 
     /* Fix 'a'->next (if 'an' was b, switch to 'bn') */
-    if (an == b) an = bn;
-    chunk_set_next_free(a, an);
-    if (an) chunk_set_prev_free(an, a);
+    // if (an == b) an = bn;
+    // chunk_set_next_free(a, an);
+    // if (an) chunk_set_prev_free(an, a);
+    chunk_set_prev_free(a, NULL);
+    chunk_set_next_free(a, NULL);
 
     return a;
 }
@@ -327,6 +329,63 @@ static void bin_push_front(Chunk_T c)
     assert(chunk_get_prev_free(s_bins[bin_index]) == NULL);
     assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));
     assert(chunk_get_status(c) == CHUNK_FREE);
+}
+
+void * heapmgr_malloc(size_t size)
+{
+    // static int booted = FALSE; //tracks whether heap was initialized
+    Chunk_T cur; //cur: walks free list, prev,prevprev: tracks prev nodes
+    size_t need_units; //requested payload expressed in chunk units
+
+    if (size == 0) 
+        return NULL;
+
+    heap_bootstrap(); 
+
+    assert(check_heap_validity());
+
+    need_units = bytes_to_payload_units(size);
+
+    /* First-fit scan: usable payload units = span - 2 (exclude header). */
+    int bin_index = get_bin_index(2 + (int)need_units);
+    for(int i = bin_index; i < NUM_BINS; i++){
+        for (cur = s_bins[bin_index]; cur != NULL; cur = chunk_get_next_free(cur)) {
+            size_t cur_payload = (size_t)chunk_get_span_units(cur) - 2;
+            bin_detach(cur);
+
+            if (cur_payload >= need_units) {                     // accept exact fit too
+                if ((size_t)chunk_get_span_units(cur) >= (size_t)(2 + need_units + 2)) {
+                    Chunk_T alloc = split_for_alloc(cur, need_units);      // split only if remainder >= 2 units (H+F)
+                    chunk_set_status(alloc, CHUNK_USED);
+                    bin_push_front(cur);
+                    return (char*)alloc + CHUNK_UNIT;
+                } else {    // exact fit
+                    chunk_set_status(cur, CHUNK_USED);
+                    return (char*)cur + CHUNK_UNIT;                     
+                }
+            }
+        }
+    }
+    
+
+    //none of free blocks fit the needed size:
+    /* Need to grow the heap. */
+    cur = sys_grow_and_link(need_units);
+    if (cur == NULL) {
+        assert(check_heap_validity());
+        return NULL;
+    }
+
+    bin_detach(cur);
+    //Final split/detach on the grown block
+    if ((size_t)chunk_get_span_units(cur) >= (size_t)(2 + need_units + 2)) {
+        cur = split_for_alloc(cur, need_units);
+        chunk_set_status(cur, CHUNK_USED);
+        bin_insert(cur);
+    } else {
+        chunk_set_status(cur, CHUNK_USED);
+    }
+    return (void *)((char *)cur + CHUNK_UNIT); //return the payload pointer (header + one unit).
 }
 
 
