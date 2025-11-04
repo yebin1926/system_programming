@@ -18,8 +18,7 @@
 
 enum { SYS_MIN_ALLOC_UNITS = 1024 };
 
-//Each s_bins[i] is the head of a separate DLL (like s_free_head)
-Chunk_T* s_bins[NUM_BINS] = {NULL};
+static Chunk_T s_bins[NUM_BINS] = { NULL };
 
 /* Heap bounds: [s_heap_lo, s_heap_hi). */
 void *s_heap_lo = NULL, *s_heap_hi = NULL;
@@ -76,7 +75,7 @@ static int check_heap_validity(void)
     if (s_heap_hi == NULL) { fprintf(stderr, "Uninitialized heap end\n");   return FALSE; }
 
     if (s_heap_lo == s_heap_hi) {
-        for(i = 0; i < NUM_BINS; i++){
+        for(int i = 0; i < NUM_BINS; i++){
             if(s_bins[i] != NULL){
                 fprintf(stderr, "Inconsistent empty heap: bin %d not empty\n", i);
                 return FALSE;
@@ -110,7 +109,7 @@ static int check_heap_validity(void)
             }
             if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE;
             
-            if (span_to_bin_index(chunk_get_span_units(w)) != i) {
+            if (get_bin_index(chunk_get_span_units(w)) != i) {
                 fprintf(stderr, "Wrong bin for span in bin %d\n", i);
                 return FALSE;
             }
@@ -175,9 +174,6 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
     if (c_prev != NULL) {
         assert(chunk_get_status(c_prev) == CHUNK_FREE);
         assert(chunk_get_next_free(c_prev) == c);
-    } else {
-        /* if no prev, c should be the head */
-        assert(c == s_free_head);
     }
 
     /* Shrink the leading free block. */
@@ -236,7 +232,7 @@ static void bin_detach(Chunk_T c)
     int bin_index = get_bin_index(chunk_get_span_units(c));
 
     if (prev == NULL){
-        assert(head == c);
+        assert(s_bins[bin_index] == c);
         s_bins[bin_index] = next;
         if (s_bins[bin_index] != NULL) {
             chunk_set_prev_free(s_bins[bin_index], NULL);
@@ -254,7 +250,39 @@ static void bin_detach(Chunk_T c)
 
     chunk_set_next_free(c, NULL);
     chunk_set_prev_free(c, NULL);
-    chunk_set_status(c, CHUNK_USED);
+    // chunk_set_status(c, CHUNK_USED);
+}
+
+static Chunk_T sys_grow_and_link(size_t need_units)
+{
+    Chunk_T c;
+    size_t grow_data = (need_units < SYS_MIN_ALLOC_UNITS) ? SYS_MIN_ALLOC_UNITS : need_units;
+    size_t grow_span = 2 + max(need_units, SYS_MIN_ALLOC_UNITS).
+
+    c = (Chunk_T)sbrk(grow_span * CHUNK_UNIT);
+    // if (c == (Chunk_T)-1)
+    //     return NULL;
+
+    if ((void*)c == (void*)-1)   return NULL;
+
+    s_heap_hi = sbrk(0);
+
+    chunk_set_span_units(c, (int)grow_span);
+    chunk_set_next_free(c, NULL);
+    chunk_set_prev_free(c, NULL);
+    chunk_set_status(c, CHUNK_FREE);   /* will fsslip to FREE once inserted */
+
+    Chunk_T c_prev_adj = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
+
+    if(c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi) && chunk_get_status(c_prev_adj) == CHUNK_FREE){
+        c = coalesce_two(c_prev_adj, c);
+        assert(check_heap_validity());
+        return c;
+    } 
+    bin_push_front(c);
+    assert(check_heap_validity());
+
+    return c;
 }
 
 static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
@@ -303,18 +331,18 @@ static void bin_push_front(Chunk_T c)
     // 2) Coalesce with physical NEXT first (survivor stays 'c')
     {
         Chunk_T next = chunk_get_adjacent(c, s_heap_lo, s_heap_hi);
-        if (next && chunk_get_status(nxt) == CHUNK_FREE) {
-            bin_detach(nxt); 
+        if (next && chunk_get_status(next) == CHUNK_FREE) {
+            bin_detach(next); 
             c = coalesce_two(c, next); /* survivor is 'c' */
             /* after coalesce_two, if c is head, its prev is NULL already */
         }
     }
     { // 3) Coalesce with physical PREV
         Chunk_T prev = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
-        if (prev && chunk_get_status(prv) == CHUNK_FREE) {
+        if (prev && chunk_get_status(prev) == CHUNK_FREE) {
             Chunk_T old_next_head = chunk_get_next_free(c);
             bin_detach(prev); 
-            
+            c = coalesce_two(prev, c);
         }
     }
 
@@ -379,9 +407,9 @@ void * heapmgr_malloc(size_t size)
     bin_detach(cur);
     //Final split/detach on the grown block
     if ((size_t)chunk_get_span_units(cur) >= (size_t)(2 + need_units + 2)) {
-        Chunk_T alloc = split_for_alloc(g, need_units);
+        Chunk_T alloc = split_for_alloc(cur, need_units);
         chunk_set_status(alloc, CHUNK_USED);
-        bin_insert(cur);                                 // re-bin remainder
+        bin_push_front(cur);                                 // re-bin remainder
         return (char*)alloc + CHUNK_UNIT;
     } else {
         chunk_set_status(cur, CHUNK_USED);
