@@ -2,8 +2,6 @@
 /* heapmgr1.c                                                      */
 /*--------------------------------------------------------------------*/
 
-//Mental model first
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -13,6 +11,9 @@
 
 #define FALSE 0
 #define TRUE  1
+
+#define TINY_BYTES        1000
+#define TINY_SPAN         ((int)(2 + bytes_to_payload_units(TINY_BYTES)))
 
 /* Minimum number of *payload* units to request on heap growth.
  * (The actual request adds 1 header unit on top.) */
@@ -164,11 +165,6 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
 
 static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
 {
-    //DELETE LATER -- start
-    // DBG("\n>> split_for_alloc c=%p need=%zu\n", (void*)c, need_units);
-    // dump_block("c.before", c);
-    //DELETE LATER -- end
-
     /* --- added checks: basic preconditions --- */
     assert(c != NULL);
     assert((long)need_units >= 0);
@@ -253,6 +249,20 @@ static void freelist_push_front(Chunk_T c)
 
     /* 1) Mark FREE and insert at head */
     chunk_set_status(c, CHUNK_FREE);
+
+    // Fast path for small blocks: push with no coalesce
+    if (chunk_get_span_units(c) <= TINY_SPAN) {
+        chunk_set_prev_free(c, NULL);
+        chunk_set_next_free(c, s_free_head);
+        if (s_free_head) chunk_set_prev_free(s_free_head, c);
+        s_free_head = c;
+
+        /* Keep the head invariant tight. */
+        assert(s_free_head != NULL);
+        assert(chunk_get_prev_free(s_free_head) == NULL);
+        return;
+    }
+
     chunk_set_prev_free(c, NULL);
     chunk_set_next_free(c, s_free_head);
     if (s_free_head) chunk_set_prev_free(s_free_head, c);
