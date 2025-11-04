@@ -363,7 +363,7 @@ static Chunk_T sys_grow_and_link(size_t need_units)
 }
 
 
-void * heapmgr_malloc(size_t size)
+void * heapgr_malloc(size_t size)
 {
     // static int booted = FALSE; //tracks whether heap was initialized
     Chunk_T cur; //cur: walks free list, prev,prevprev: tracks prev nodes
