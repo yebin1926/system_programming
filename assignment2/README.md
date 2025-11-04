@@ -708,22 +708,25 @@ bool match(str, pattern):
   return FALSE
 
 bool submatch(s, p):
-  while *s and *p is not ‘\0’:
-    if *p != ‘*’:
-      if *(p + 1) == ‘*’:
+  while (*s != '\0' && *p != ‘\0’){
+    if (*p != ‘*’){
+      if (*(p + 1) == ‘*’){
         // save the preceding character for repetition
+      }
       else if *s != *p:
         return FALSE
-      else s++
-      p++
-      
+      else {
+        s++;
+        p++;
+      }
+    }
     else: // *p == ‘*’
       if submatch(s, p + 1): // zero repetition
         return TRUE
       else:  
         // one or more repetition
       return FALSE
-
+  }
   if *p == ‘\0’: // pattern matched
     return TRUE
     

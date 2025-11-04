@@ -1,0 +1,16 @@
+Name: 편예빈
+Student ID: 2021-10421
+Assignment Number: 2
+
+
+Sources used:
+I searched to look at how to use the functions introduced in the README.md files (e.g. opendir(), lstat(), etc), and some other information on C language syntax.
+
+
+Logic of my code:
+Match(str, pattern) first validates pattern syntax (empty, leading *, **, unbalanced/empty groups) and determines is_only_group for (…)* cases.
+Then it attempts to match pattern at every position in str by calling submatch(str+i, pattern, is_only_group) until one succeeds.
+submatch is the recursive engine: it handles end-of-string, plain literals/?, x* (zero-or-more of a literal), bare * (try skip or consume-one-and-retry), and parenthesized groups.
+For (group)*, it uses check_repetition_match to greedily consume as many full group copies as fit, then continues with the remainder of the pattern; for a single (group) it must match the group once.
+process_dir(path, depth, pstr, stats, flags) reads all entries, sorts (dirs first, then name), and when no filter is given prints each entry, updates type counts and size/blocks, and recurses into subdirs within max_depth.
+With a filter (pstr), it prints an entry if its name matches or if any descendant matches (subtree_has_match); for directories it may print the name-only line or full metadata depending on self-match, and it only recurses when a child match exists.
