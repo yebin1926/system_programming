@@ -91,7 +91,7 @@ static int check_heap_validity(void)
     }
 
     /* Walk the bin list; ensure nodes are free and not trivially coalescible. */
-    for(i = 0; i < NUM_BINS; i++){
+    for(int i = 0; i < NUM_BINS; i++){
         Chunk_T head = s_bins[i];
         if (head && chunk_get_prev_free(head) != NULL) {
             fprintf(stderr, "Bin %d head has non-NULL prev\n", i);
@@ -253,38 +253,6 @@ static void bin_detach(Chunk_T c)
     // chunk_set_status(c, CHUNK_USED);
 }
 
-static Chunk_T sys_grow_and_link(size_t need_units)
-{
-    Chunk_T c;
-    size_t grow_data = (need_units < SYS_MIN_ALLOC_UNITS) ? SYS_MIN_ALLOC_UNITS : need_units;
-    size_t grow_span = 2 + max(need_units, SYS_MIN_ALLOC_UNITS).
-
-    c = (Chunk_T)sbrk(grow_span * CHUNK_UNIT);
-    // if (c == (Chunk_T)-1)
-    //     return NULL;
-
-    if ((void*)c == (void*)-1)   return NULL;
-
-    s_heap_hi = sbrk(0);
-
-    chunk_set_span_units(c, (int)grow_span);
-    chunk_set_next_free(c, NULL);
-    chunk_set_prev_free(c, NULL);
-    chunk_set_status(c, CHUNK_FREE);   /* will fsslip to FREE once inserted */
-
-    Chunk_T c_prev_adj = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
-
-    if(c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi) && chunk_get_status(c_prev_adj) == CHUNK_FREE){
-        c = coalesce_two(c_prev_adj, c);
-        assert(check_heap_validity());
-        return c;
-    } 
-    bin_push_front(c);
-    assert(check_heap_validity());
-
-    return c;
-}
-
 static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
 {
     if (b < a) { Chunk_T t = a; a = b; b = t; }
@@ -340,7 +308,7 @@ static void bin_push_front(Chunk_T c)
     { // 3) Coalesce with physical PREV
         Chunk_T prev = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
         if (prev && chunk_get_status(prev) == CHUNK_FREE) {
-            Chunk_T old_next_head = chunk_get_next_free(c);
+            //Chunk_T old_next_head = chunk_get_next_free(c);
             bin_detach(prev); 
             c = coalesce_two(prev, c);
         }
@@ -358,6 +326,39 @@ static void bin_push_front(Chunk_T c)
     assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));
     assert(chunk_get_status(c) == CHUNK_FREE);
 }
+
+static Chunk_T sys_grow_and_link(size_t need_units)
+{
+    Chunk_T c;
+    size_t grow_data = (need_units < SYS_MIN_ALLOC_UNITS) ? SYS_MIN_ALLOC_UNITS : need_units;
+    size_t grow_span = 2 + grow_data;
+
+    c = (Chunk_T)sbrk(grow_span * CHUNK_UNIT);
+    // if (c == (Chunk_T)-1)
+    //     return NULL;
+
+    if ((void*)c == (void*)-1)   return NULL;
+
+    s_heap_hi = sbrk(0);
+
+    chunk_set_span_units(c, (int)grow_span);
+    chunk_set_next_free(c, NULL);
+    chunk_set_prev_free(c, NULL);
+    chunk_set_status(c, CHUNK_FREE);   /* will fsslip to FREE once inserted */
+
+    Chunk_T c_prev_adj = chunk_get_prev_adjacent(c, s_heap_lo, s_heap_hi);
+
+    if(c_prev_adj && chunk_is_valid(c_prev_adj, s_heap_lo, s_heap_hi) && chunk_get_status(c_prev_adj) == CHUNK_FREE){
+        c = coalesce_two(c_prev_adj, c);
+        assert(check_heap_validity());
+        return c;
+    } 
+    bin_push_front(c);
+    assert(check_heap_validity());
+
+    return c;
+}
+
 
 void * heapmgr_malloc(size_t size)
 {
