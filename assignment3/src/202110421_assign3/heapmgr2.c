@@ -29,17 +29,32 @@ int s_heap_booted = FALSE;
 
 #endif
 
+/*--------------------------------------------------------------------*/
+/* bytes_to_payload_units
+ *
+ * Convert a byte count to the number of *payload* units, rounding up
+ * to the nearest multiple of CHUNK_UNIT. The result does not include
+ * the header unit. */
 static size_t bytes_to_payload_units(size_t bytes)
 {
     return (bytes + (CHUNK_UNIT - 1)) / CHUNK_UNIT;
 }
 
+/*--------------------------------------------------------------------*/
+/* header_from_payload
+ *
+ * Map a client data pointer back to its block header pointer by
+ * stepping one header unit backward. */
 static Chunk_T header_from_payload(void *p)
 {
     return (Chunk_T)((char *)p - CHUNK_UNIT);
 }
 
-
+/*--------------------------------------------------------------------*/
+/* heap_bootstrap
+ *
+ * Initialize heap bounds using sbrk(0). Must be called exactly once
+ * before any allocation occurs. Exits the process on fatal failure. */
 static void heap_bootstrap(void)
 {
     if (s_heap_booted) return;
@@ -51,6 +66,7 @@ static void heap_bootstrap(void)
     s_heap_booted = TRUE;
 }
 
+//gets span_units and returns which bin it belongs to
 static int get_bin_index(int span_units){
     if(span_units < 8) return 0;
     else if(span_units < 16) return 1;
@@ -66,6 +82,14 @@ static int get_bin_index(int span_units){
 
 #ifndef NDEBUG
 
+
+/* check_heap_validity
+ *
+ * Lightweight integrity checks for the entire heap and the free list.
+ * This is a *basic* sanity check. Passing it does not prove correctness
+ * of all invariants, but it helps catch common structural bugs.
+ *
+ * Returns TRUE (1) on success, FALSE (0) on failure. */
 static int check_heap_validity(void)
 {
     Chunk_T w;
@@ -84,16 +108,16 @@ static int check_heap_validity(void)
         return TRUE; //if heap is empty, the bin list should also be empty
     }
 
-    /* Walk all physical blocks in address order. and check if their chunk is valid*/
+    // Walk all physical blocks in address order, and check if their chunk is valid
     for (w = (Chunk_T)s_heap_lo; w && w < (Chunk_T)s_heap_hi;
          w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) {
         if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE;
     }
 
-    /* Walk the bin list; ensure nodes are free and not trivially coalescible. */
+    // Walk the bin list and ensure nodes are free and not trivially coalescible
     for(int i = 0; i < NUM_BINS; i++){
         Chunk_T head = s_bins[i];
-        if (head && chunk_get_prev_free(head) != NULL) {
+        if (head && chunk_get_prev_free(head) != NULL) { //check that head is available and that its previous free chunk is NULL
             fprintf(stderr, "Bin %d head has non-NULL prev\n", i);
             return FALSE;
         }
@@ -107,9 +131,9 @@ static int check_heap_validity(void)
                 fprintf(stderr, "Non-free chunk in the free list\n");
                 return FALSE;
             }
-            if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE;
+            if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE; // check the chunk is valid
             
-            if (get_bin_index(chunk_get_span_units(w)) != i) {
+            if (get_bin_index(chunk_get_span_units(w)) != i) { //check if it's in the right bin
                 fprintf(stderr, "Wrong bin for span in bin %d\n", i);
                 return FALSE;
             }
@@ -150,7 +174,6 @@ static int check_heap_validity(void)
 
 static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
 {
-    /* --- added checks: basic preconditions --- */
     assert(c != NULL);
     assert((long)need_units >= 0);
 
@@ -158,49 +181,45 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
     Chunk_T c_prev = chunk_get_prev_free(c);
 
     int old_span    = chunk_get_span_units(c);
-    int alloc_span  = (int)(2 + need_units);
-    int remain_span = old_span - alloc_span;
+    int alloc_span  = (int)(2 + need_units); //span to be allocated
+    int remain_span = old_span - alloc_span; //span that remains after allocation
 
-    /* --- added checks: span math & status/bounds --- */
-    assert(old_span >= 2);        /* original free block must be ≥ H+F */
-    assert(alloc_span >= 2);      /* allocated block must be ≥ H+F */
-    assert(remain_span >= 2);     /* remaining free block must be ≥ H+F */
+    assert(old_span >= 2);       
+    assert(alloc_span >= 2);   
+    assert(remain_span >= 2);
 
     assert(c >= (Chunk_T)s_heap_lo && c <= (Chunk_T)s_heap_hi);
     assert(chunk_get_status(c) == CHUNK_FREE);
     assert(remain_span >= 2);
 
-    /* --- added checks: if c has a prev in the DLL, it must point to c --- */
-    if (c_prev != NULL) {
+    if (c_prev != NULL) { //checks that if prev is not NULL, it must be free chunks, and its next free is c
         assert(chunk_get_status(c_prev) == CHUNK_FREE);
         assert(chunk_get_next_free(c_prev) == c);
     }
 
-    /* Shrink the leading free block. */
+    // Shrink the leading free block
     chunk_set_span_units(c, remain_span);
 
-    /* --- added checks: c is still valid after shrinking --- */
+    // check that c is valid after shrinking
     assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));
     assert(chunk_get_status(c) == CHUNK_FREE);
 
-    /* The allocated block begins immediately after the smaller free block. */
     alloc = chunk_get_adjacent(c, s_heap_lo, s_heap_hi); //alloc is now the 2nd part of the block
 
-    /* --- added checks: alloc header address sanity --- */
     assert(alloc != NULL);
     assert((void*)alloc >= s_heap_lo && (void*)alloc < s_heap_hi);
 
+    //initialise allocated block and change it to a used block
     chunk_set_span_units(alloc, alloc_span);
     chunk_set_status(alloc, CHUNK_USED);
     chunk_set_next_free(alloc, NULL);
     chunk_set_prev_free(alloc, NULL);
-    /* --- added checks: alloc validity after initializing span/status --- */
+
+    // check that alloc is valid
     assert(chunk_is_valid(alloc, s_heap_lo, s_heap_hi));
     assert(chunk_get_status(alloc) == CHUNK_USED);
 
-    // chunk_set_next_free(alloc, chunk_get_next_free(c));  /* harmless for allocated */
-
-    /* --- added checks: DLL successor (if any) remains a FREE block --- */
+    // next chunk (if any) should be a free block
     {
         Chunk_T c_succ = chunk_get_next_free(c);
         if (c_succ != NULL) {
@@ -209,9 +228,8 @@ static Chunk_T split_for_alloc(Chunk_T c, size_t need_units)
     }
 
     chunk_set_prev_free(c, c_prev);
-    // chunk_set_prev_free(alloc, c);
 
-    /* --- added checks: final adjacency and block validity --- */
+    // final checks for validity and adjacency
     assert(chunk_get_adjacent(c, s_heap_lo, s_heap_hi) == alloc);
     assert(chunk_is_valid(c, s_heap_lo, s_heap_hi));
     assert(chunk_is_valid(alloc, s_heap_lo, s_heap_hi));
@@ -229,17 +247,17 @@ static void bin_detach(Chunk_T c)
     assert(c != NULL);
     assert(chunk_get_status(c) == CHUNK_FREE);
 
-    int bin_index = get_bin_index(chunk_get_span_units(c));
+    int bin_index = get_bin_index(chunk_get_span_units(c)); //get which bin it belongs to
 
-    if (prev == NULL){
-        assert(s_bins[bin_index] == c);
+    if (prev == NULL){ //if c is the head of the list
+        assert(s_bins[bin_index] == c); //check if it's actually the head
         s_bins[bin_index] = next;
         if (s_bins[bin_index] != NULL) {
             chunk_set_prev_free(s_bins[bin_index], NULL);
         }
         if (next) chunk_set_prev_free(next, NULL);
     }
-    else{
+    else {
         chunk_set_next_free(prev, next);
         if (next) chunk_set_prev_free(next, prev);
     }
@@ -250,7 +268,6 @@ static void bin_detach(Chunk_T c)
 
     chunk_set_next_free(c, NULL);
     chunk_set_prev_free(c, NULL);
-    // chunk_set_status(c, CHUNK_USED);
 }
 
 static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
@@ -264,20 +281,9 @@ static Chunk_T coalesce_two(Chunk_T a, Chunk_T b)
     assert(chunk_get_adjacent(a, s_heap_lo, s_heap_hi) == b);
     assert(chunk_get_prev_adjacent(b, s_heap_lo, s_heap_hi) == a);
 
-    /* If a->next is b, we'll stitch to b->next after unlink */
-    // Chunk_T an = chunk_get_next_free(a);
-    // Chunk_T bn = chunk_get_next_free(b);
-
-    // /* Remove b from free list first (no status change). */
-    // bin_detach(b);
-
     /* Grow 'a' */
     chunk_set_span_units(a, chunk_get_span_units(a) + chunk_get_span_units(b));
 
-    /* Fix 'a'->next (if 'an' was b, switch to 'bn') */
-    // if (an == b) an = bn;
-    // chunk_set_next_free(a, an);
-    // if (an) chunk_set_prev_free(an, a);
     chunk_set_prev_free(a, NULL);
     chunk_set_next_free(a, NULL);
 
@@ -334,8 +340,6 @@ static Chunk_T sys_grow_and_link(size_t need_units)
     size_t grow_span = 2 + grow_data;
 
     c = (Chunk_T)sbrk(grow_span * CHUNK_UNIT);
-    // if (c == (Chunk_T)-1)
-    //     return NULL;
 
     if ((void*)c == (void*)-1)   return NULL;
 

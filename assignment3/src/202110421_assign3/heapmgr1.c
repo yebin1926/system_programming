@@ -15,14 +15,10 @@
 #define TINY_BYTES        1000
 #define TINY_SPAN         ((int)(2 + bytes_to_payload_units(TINY_BYTES)))
 
-/* Minimum number of *payload* units to request on heap growth.
- * (The actual request adds 1 header unit on top.) */
 enum { SYS_MIN_ALLOC_UNITS = 1024 };
 
-/* Head of the free list (ordered by ascending address). */
 Chunk_T s_free_head = NULL;
 
-/* Heap bounds: [s_heap_lo, s_heap_hi). */
 void *s_heap_lo = NULL, *s_heap_hi = NULL;
 
 int s_heap_booted = FALSE;
