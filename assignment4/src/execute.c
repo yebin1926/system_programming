@@ -231,28 +231,27 @@ void wait_fg(int jobid) { //waits for a foreground job (which may consist of 1 o
     }
 
     while (1) {
-        pid = waitpid(-job->pgid, &status, 0); //wait for any child in the process group pgid.
+        pid = waitpid(-job->pgid, &status, 0); //wait for any child in the process group pgid. this allows waiting for pipelines
 
-        if (pid > 0) {
-            // Remove the finished process from the job's pid list
-            if (!remove_pid_from_job(job, pid)) {
-                fprintf(stderr, "Pid %d not found in the job: %d list\n", 
+        if (pid > 0) { //A child in that PGID has finished.
+            if (!remove_pid_from_job(job, pid)) { //// Remove the finished process from the job's pid list
+                fprintf(stderr, "Pid %d not found in the job: %d list\n", //If not found → something is wrong.
                     pid, job->job_id);
             }
 
-            if (job->remaining_processes == 0) break;
+            if (job->remaining_processes == 0) break; //If all processes in the pipeline finished → break out of wait loop
         }
 
-        if (pid == 0) continue;
+        if (pid == 0) continue; //Should never happen because waitpid was called with blocking mode (0 flag)
 
-        if (pid < 0) {
-            if (errno == EINTR) continue;
-            if (errno == ECHILD) break;
+        if (pid < 0) { //If waitpid fails:
+            if (errno == EINTR) continue;   //EINTR: interrupted (e.g., by SIGINT) → retry
+            if (errno == ECHILD) break;     //ECHILD: no more children → break loop
             error_print("Unknown error waitpid() in wait_fg()", PERROR);
         }
     }
 
-    // Clean up job table entry if all processes are done
+    // Clean up job table entry from job manager. if all processes are done.
     if (job->remaining_processes == 0)
         delete_job(job->job_id);
 }
@@ -273,7 +272,18 @@ int fork_exec(DynArray_T oTokens, int is_background) { // handles the execution 
      * All terminated processes must be handled by sigchld_handler() in * snush.c. 
      */
      pid_t pid = fork();
-     if pid == 
+     if (pid < 0 ){ //if fork fails
+        fprintf(stderr, "failed to fork");
+     } else if (pid == 0) { //child process
+        setpgid(0, 0); //set pgid to be same as child's pid
+        char *args[MAX_ARGS_CNT];
+        build_command(oTokens, args);
+        execvp(args[0], args);
+        error_print(NULL, PERROR);
+        exit(EXIT_FAILURE);
+     } else if (pid > 0){ //parent process
+        //
+     }
 
 
     int jobid = 1;
