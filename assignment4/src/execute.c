@@ -16,12 +16,14 @@ extern volatile sig_atomic_t sigchld_flag;
 extern volatile sig_atomic_t sigint_flag;
 
 /*--------------------------------------------------------------------*/
-void block_signal(int sig, int block) {
-    sigset_t set;
-    sigemptyset(&set);
-    sigaddset(&set, sig);
+void block_signal(int sig, int block) { //Temporarily block or unblock a specific signal (like SIGCHLD or SIGINT) for the current process
+    //sig: which signal to affect (e.g. SIGCHLD).
+    //block: if non-zero → block; if 0 → unblock.
+    sigset_t set;           //a signal set object (a bitmask-like structure that can hold multiple signals). it holds signals we want to change
+    sigemptyset(&set);      //Initializes set to be empty (no signals in it).
+    sigaddset(&set, sig);   //Adds the signal sig to the set.
 
-    if (sigprocmask(block ? SIG_BLOCK : SIG_UNBLOCK, &set, NULL) < 0) {
+    if (sigprocmask(block ? SIG_BLOCK : SIG_UNBLOCK, &set, NULL) < 0) { //If block != 0 → use SIG_BLOCK (add these signals to the blocked set). Else, use SIG_UNBLOCK (remove these signals from the blocked set).
         fprintf(stderr, 
             "[Error] block_signal: sigprocmask(%s, sig=%d) failed: %s\n",
             block ? "SIG_BLOCK" : "SIG_UNBLOCK", sig, strerror(errno));
@@ -71,10 +73,20 @@ void check_signals(void) {
     handle_sigint();
 }
 /*--------------------------------------------------------------------*/
-void redout_handler(char *fname) {
+void redout_handler(char *fname) { // *fname: filename to be used for redirection
     /*
-     TODO: Implement redout_handler in execute.c
+    TODO: Implement redout_handler in execute.c
     */
+    int fd;
+    fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC);
+    if (fd < 0) {
+        error_print(NULL, PERROR);
+        exit(EXIT_FAILURE);
+    } else {
+        dup2_e(fd, STDOUT_FILENO, __func__, __LINE__);
+        close(fd);
+    }
+    
 }
 /*--------------------------------------------------------------------*/
 void redin_handler(char *fname) {
@@ -84,32 +96,32 @@ void redin_handler(char *fname) {
     if (fd < 0) {
         error_print(NULL, PERROR);
         exit(EXIT_FAILURE);
+    } else {
+        dup2_e(fd, STDIN_FILENO, __func__, __LINE__);
+        close(fd);
     }
-
-    dup2_e(fd, STDIN_FILENO, __func__, __LINE__);
-    close(fd);
 }
 /*--------------------------------------------------------------------*/
 void build_command_partial(DynArray_T oTokens, int start, 
-                        int end, char *args[]) {
+                        int end, char *args[]) { //translates tokens (parsing result) into an argv array suitable for execvp() + performs IO redirection
     int i, redin = FALSE, redout = FALSE, cnt = 0;
-    struct Token *t;
+    struct Token *t; //Temp pointer to the current token.
 
     /* Build command */
-    for (i = start; i < end; i++) {
+    for (i = start; i < end; i++) { //Loop over tokens from index start to end-1.
         t = dynarray_get(oTokens, i);
 
-        if (t->token_type == TOKEN_WORD) {
-            if (redin == TRUE) {
+        if (t->token_type == TOKEN_WORD) { //If the token is a normal word 
+            if (redin == TRUE) { //if that file(?) is supposed to be redin
                 redin_handler(t->token_value);
                 redin = FALSE;
             }
-            else if (redout == TRUE) {
+            else if (redout == TRUE) { //if that file(?) is supposed to be redout
                 redout_handler(t->token_value);
                 redout = FALSE;
             }
             else {
-                args[cnt++] = t->token_value;
+                args[cnt++] = t->token_value; //add token to args
             }
         }
         else if (t->token_type == TOKEN_REDIN)
@@ -134,35 +146,38 @@ void build_command_partial(DynArray_T oTokens, int start,
 #endif
 }
 /*--------------------------------------------------------------------*/
-void build_command(DynArray_T oTokens, char *args[]) {
+void build_command(DynArray_T oTokens, char *args[]) { //convenience wrapper for the common case of “use ALL tokens”
+    //Calls build_command_partial starting at index 0 and ending at dynarray_get_length(oTokens) → processing all tokens.
     build_command_partial(oTokens, 0, 
                         dynarray_get_length(oTokens), 
                         args);
 }
 /*--------------------------------------------------------------------*/
 int execute_builtin_partial(DynArray_T toks, int start, int end,
-                            enum BuiltinType btype, int in_child) {
-    
-    int argc = end - start;
-    struct Token *t1;
-    int ret;
-    char *dir;
+                            enum BuiltinType btype, int in_child) { //Executes a built-in command (cd or exit) for a specific token range from start to end.
+    // btype: which builtin it is (B_CD, B_EXIT).
+    // in_child: TRUE if this builtin is inside a pipeline (e.g., cd | ls), FALSE if this builtin is in the main shell (no fork)
+
+    int argc = end - start; //number of tokens within this slice.
+    struct Token *t1;       //token pointer
+    int ret;                // return code from chdir
+    char *dir;              // directory string for cd
 
     switch (btype) {
-    case B_EXIT:
-        if (in_child) return 0;
+    case B_EXIT:                //If exit appears inside a pipeline, the child must run the builtin
+        if (in_child) return 0; //but in a pipeline, exit must not terminate the shell, only the child process.
         
-        if (argc == 1) {
-            dynarray_map(toks, free_token, NULL);
+        if (argc == 1) {        //If the command is exactly exit with no parameters:
+            dynarray_map(toks, free_token, NULL); //Free token list, and token array
             dynarray_free(toks);
-            exit(EXIT_SUCCESS);
+            exit(EXIT_SUCCESS); //Terminate the entire SNUSH shell 
         }
         else {
             error_print("exit does not take any parameters", FPRINTF);
             return -1;
         }
 
-    case B_CD: {
+    case B_CD: { //means command is built-in, should be executed inside parent shell
         if (argc == 1) {
             dir = getenv("HOME");
             if (!dir) {
@@ -204,19 +219,19 @@ int execute_builtin(DynArray_T oTokens, enum BuiltinType btype) {
  * remove_pid_from_job(), delete_job()) in job.c to handle the job.
  * Feel free to modify the format of the job API according to your design.
  */
-void wait_fg(int jobid) {
-    pid_t pid;
-    int status;
+void wait_fg(int jobid) { //waits for a foreground job (which may consist of 1 or multiple processes in a pipeline)
+    pid_t pid;  //result of waitpid
+    int status; //exit status of child
 
      // Find the job structure by job ID
-    struct job *job = find_job_by_jid(jobid);
-    if (!job) {
+    struct job *job = find_job_by_jid(jobid);           //Look up the job in the job manager.
+    if (!job) {                                         //Error if no such job exists.
         fprintf(stderr, "Job: %d not found\n", jobid);
         return;
     }
 
     while (1) {
-        pid = waitpid(-job->pgid, &status, 0);
+        pid = waitpid(-job->pgid, &status, 0); //wait for any child in the process group pgid.
 
         if (pid > 0) {
             // Remove the finished process from the job's pid list
@@ -247,7 +262,8 @@ void print_job(int jobid, pid_t pgid) {
         "[%d] Process group: %d running in the background\n", jobid, pgid);
 }
 /*--------------------------------------------------------------------*/
-int fork_exec(DynArray_T oTokens, int is_background) {
+int fork_exec(DynArray_T oTokens, int is_background) { // handles the execution of a single command, which may include I/O redirection
+    //oTokens: sequence of tokens parsed from the user's command line input. The entire command line broken up into individual words and symbols
     /*
      * TODO: Implement fork_exec() in execute.c
      * To run a newly forked process in the foreground, call wait_fg() 
@@ -256,6 +272,9 @@ int fork_exec(DynArray_T oTokens, int is_background) {
      * process group id.  
      * All terminated processes must be handled by sigchld_handler() in * snush.c. 
      */
+     pid_t pid = fork();
+     if pid == 
+
 
     int jobid = 1;
     return jobid;
