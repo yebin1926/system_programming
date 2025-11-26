@@ -68,6 +68,7 @@ int delete_job(int jobid) {
 
     for (int i = 0; i < (manager->n_jobs) ; i++) {  //delete the job from job manager
         if(manager->jobs[i].job_id == jobid){
+            free(manager->jobs[i].pids);
             manager->jobs[i] = manager->jobs[manager->n_jobs-1];
             manager->n_jobs--;
             block_signal(SIGCHLD, FALSE);
@@ -82,19 +83,37 @@ int delete_job(int jobid) {
  * TODO: Implement any necessary job-control code in job.c 
  */
 
-int add_job(int jobid){
+int add_job(int jobid, pid_t pgid, pid_t *pids, int num_pids, job_state state){
     block_signal(SIGCHLD, TRUE);
-    struct job new_job;
 
-    manager->jobs[n_jobs] = 
+    if (manager->n_jobs >= MAX_JOBS) { // job table full
+        return -1;
+    }
+
+    struct job *newjob = &manager->jobs[manager->n_jobs];
+    memset(newjob, 0, sizeof(struct job));
+    newjob->job_id = jobid;
+    newjob->pgid = pgid;
+    newjob->state = state;
+    newjob->remaining_processes = num_pids;
+
+    newjob->pids = malloc(sizeof(pid_t) * num_pids);
+    if (!newjob->pids) {
+        block_signal(SIGCHLD, FALSE);
+        return -1;
+    }
+
+    for (int i = 0; i < num_pids; i++) {
+        newjob->pids[i] = pids[i];
+    }
+
     manager->n_jobs++;
+
     block_signal(SIGCHLD, FALSE);
+    return jobid;
 }
 
 int add_pid_to_job(struct job *job, pid_t pid){
-    //
-}
-
-struct job *find_job_by_pid(pid_t pid){
-    //
+    job->pids[job->n_jobs] = pid;
+    job->n_jobs++;
 }

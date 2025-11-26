@@ -35,8 +35,8 @@ struct job {
     int job_id;
     pid_t pgid;
     int remaining_processes;
-    /* TODO: Add any necessary fields to the job */
     pid_t *pids;
+    job_state state;
 };
 
 /* 
@@ -57,7 +57,6 @@ int delete_job(int job_id);
 
 int add_job(int jobid);
 int add_pid_to_job(struct job *job, pid_t pid);
-struct job *find_job_by_pid(pid_t pid);
 
 /*
  * TODO: Implement any necessary job-control code in job.h 
