@@ -87,6 +87,7 @@ int add_job(int jobid, pid_t pgid, pid_t *pids, int num_pids, job_state state){
     block_signal(SIGCHLD, TRUE);
 
     if (manager->n_jobs >= MAX_JOBS) { // job table full
+        block_signal(SIGCHLD, FALSE);
         return -1;
     }
 
@@ -114,6 +115,13 @@ int add_job(int jobid, pid_t pgid, pid_t *pids, int num_pids, job_state state){
 }
 
 int add_pid_to_job(struct job *job, pid_t pid){
-    job->pids[job->n_jobs] = pid;
-    job->n_jobs++;
+    block_signal(SIGCHLD, TRUE);
+    pid_t *new_arr = realloc(job->pids, sizeof(pid_t) * (job->remaining_processes + 1)); //create new array with space for new pid
+    if (!new_arr) return -1;
+
+    job->pids = new_arr;
+    job->pids[job->remaining_processes] = pid;
+    job->remaining_processes++;
+    block_signal(SIGCHLD, FALSE);
+    return 1;
 }
