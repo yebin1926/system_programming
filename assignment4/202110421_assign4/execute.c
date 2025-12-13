@@ -32,25 +32,69 @@ void block_signal(int sig, int block) { //Temporarily block or unblock a specifi
 }
 /*--------------------------------------------------------------------*/
 void handle_sigchld(void) {
+    int   status;
+    pid_t reaped_pid;
 
-    /*
-     * TODO: Implement handle_sigchld() in execute.c
-     * Call waitpid() to wait for the child process to terminate.
-     * If the child process terminates, handle the job accordingly.
-     * Be careful to handle the SIGCHLD signal flag and unblock SIGCHLD.
-    */
-    
+    /* Reap all children that have changed state */
+    while ((reaped_pid = waitpid(-1, &status, WNOHANG)) > 0) {
+
+        if (manager == NULL || manager->jobs == NULL || manager->n_jobs == 0) {
+            continue;
+        }
+
+        /* Find which job this pid belongs to */
+        for (int i = 0; i < manager->n_jobs; i++) {
+            struct job *job = &manager->jobs[i];
+
+            /* This will also update job->remaining_processes */
+            if (remove_pid_from_job(job, pid)) {
+
+                /* If all processes in this job are done */
+                if (job->remaining_processes == 0) {
+                    int jobid      = job->job_id;
+                    pid_t pgid     = job->pgid;
+                    job_state state = job->state;
+
+                    /* If it was a background job, notify the user */
+                    if (state == BACKGROUND) {
+                        printf("Job [%d] with PGID %d finished\n",
+                               jobid, (int)pgid);
+                        fflush(stdout);
+                    }
+
+                    /* Remove job from job manager and free its pid list */
+                    delete_job(jobid);
+                }
+
+                /* We’ve found the job for this pid, no need to scan further */
+                break;
+            }
+        }
+    }
 }
 /*--------------------------------------------------------------------*/
 void handle_sigint(void) {
-    
-    /*
-     * TODO: Implement handle_sigint() in execute.c
-     * Find the foreground job and send signal to every process in the
-     * process group.
-     * Be careful to handle the SIGINT signal flag and unblock SIGINT.
-     */
-    
+    if (manager == NULL || manager->jobs == NULL || manager->n_jobs == 0) {
+        return;
+    }
+
+    /* Protect job table while we scan it */
+    block_signal(SIGCHLD, TRUE);
+
+    for (int i = 0; i < manager->n_jobs; i++) {
+        struct job *job = &manager->jobs[i];
+
+        if (job->state == FOREGROUND) {
+            pid_t pgid = job->pgid;
+
+            if (pgid > 0) {
+                kill(-pgid, SIGINT);
+            }
+            break;
+        }
+    }
+
+    block_signal(SIGCHLD, FALSE);
 }
 /*--------------------------------------------------------------------*/
 void dup2_e(int oldfd, int newfd, const char *func, const int line) {
@@ -271,23 +315,51 @@ int fork_exec(DynArray_T oTokens, int is_background) { // handles the execution 
      * process group id.  
      * All terminated processes must be handled by sigchld_handler() in * snush.c. 
      */
+     int new_jobid = -1;
      pid_t pid = fork();
+     job_state state;
+
      if (pid < 0 ){ //if fork fails
-        fprintf(stderr, "failed to fork");
+        perror("fork failed");
+        return -1;
      } else if (pid == 0) { //child process
         setpgid(0, 0); //set pgid to be same as child's pid
+
         char *args[MAX_ARGS_CNT];
         build_command(oTokens, args);
+
+        if (args[0] == NULL) { //if build command produced no program
+            _exit(EXIT_SUCCESS);
+        }
+
         execvp(args[0], args);
         error_print(NULL, PERROR);
         exit(EXIT_FAILURE);
+
      } else if (pid > 0){ //parent process
-        //
+        setpgid(pid, pid);
+
+        pid_t pid_list[1];
+        pid_list[0] = pid;
+
+        state = is_background ? BACKGROUND : FOREGROUND;
+
+        new_jobid = add_job(pid, pid_list, 1, state);
+        if(new_jobid < 0){
+            fprintf(stderr, "failed to add job");
+            kill(pid, SIGKILL);
+            return -1;
+        }
+
+        if(!is_background){ //foreground
+            wait_fg(new_jobid);
+        } else{ //background
+            print_job(new_jobid, pid);
+        }
+
      }
 
-
-    int jobid = 1;
-    return jobid;
+    return new_jobid;
 }
 /*--------------------------------------------------------------------*/
 int iter_pipe_fork_exec(int n_pipe, DynArray_T oTokens, int is_background) {

@@ -83,7 +83,7 @@ int delete_job(int jobid) {
  * TODO: Implement any necessary job-control code in job.c 
  */
 
-int add_job(int jobid, pid_t pgid, pid_t *pids, int num_pids, job_state state){
+int add_job(pid_t pgid, pid_t *pids, int num_pids, job_state state){
     block_signal(SIGCHLD, TRUE);
 
     if (manager->n_jobs >= MAX_JOBS) { // job table full
@@ -93,6 +93,7 @@ int add_job(int jobid, pid_t pgid, pid_t *pids, int num_pids, job_state state){
 
     struct job *newjob = &manager->jobs[manager->n_jobs];
     memset(newjob, 0, sizeof(struct job));
+    int jobid = next_jid++;
     newjob->job_id = jobid;
     newjob->pgid = pgid;
     newjob->state = state;
@@ -125,3 +126,5 @@ int add_pid_to_job(struct job *job, pid_t pid){
     block_signal(SIGCHLD, FALSE);
     return 1;
 }
+
+int find_job_by_pid(int )

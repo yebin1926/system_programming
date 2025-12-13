@@ -19,6 +19,8 @@
 
 #define MAX_JOBS 16
 
+static int next_jid = 1;
+
 typedef enum State {
     UNKNOWN = 0,
     FOREGROUND,
