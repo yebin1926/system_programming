@@ -1,20 +1,21 @@
 /*--------------------------------------------------------------------*/
 /* hashtable.c                                                        */
 /* Author: Junghan Yoon, KyoungSoo Park                               */
-/* Modified by: (Your Name)                                           */
+/* Modified by: Yebin Pyun                                      */
 /*--------------------------------------------------------------------*/
 #include "hashtable.h"
 /*--------------------------------------------------------------------*/
-int hash(const char *key, size_t hash_size)
+int hash(const char *key, size_t hash_size) //converts a key string into a bucket index
 {
     TRACE_PRINT();
     unsigned int hash = 0;
-    while (*key)
+    while (*key) //loop over character until reaching null '\n'
     {
-        hash = (hash << 5) + *key++;
+        hash = (hash << 5) + *key++; //shift left by 5 bits (multiply by 32), then add key
+        //move to the next char in key 
     }
 
-    return hash % hash_size;
+    return hash % hash_size; //return bucket index
 }
 /*--------------------------------------------------------------------*/
 hashtable_t *hash_init(size_t hash_size, int delay)
@@ -119,6 +120,27 @@ int hash_insert(hashtable_t *table, const char *key, const char *value)
     TRACE_PRINT();
 /*--------------------------------------------------------------------*/
     /* edit here */
+    //TODO: validate inputs
+    if(table == NULL || key == NULL || value == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    //TODO: compute which bucket to use
+    int bucket_idx = hash(key, DEFAULT_HASH_SIZE);
+
+    //TODO: Acquire bucket's write lock
+    
+
+    //TODO: check for collision (if key alr exists)
+
+    //TODO: Allocate and initialise new node
+
+    //TODO: Link it to the bucket
+
+    //TODO: Update metadata
+
+    //TODO: Releast lock and return success
 
 /*--------------------------------------------------------------------*/
     return 1;
