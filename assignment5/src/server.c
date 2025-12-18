@@ -117,7 +117,7 @@ void *handle_client(void *arg)
                 break;
             }
             
-            int serve_int = skvs_serve(ctx, total_buf, total_used, response_buf, &response_len);
+            int serve_int = skvs_serve(ctx, total_buf, total_used, response_buf, (long unsigned int*)&response_len);
             if(serve_int < 0){
                 // perror("Error in skvs_serve()");
                 // exit(EXIT_FAILURE);

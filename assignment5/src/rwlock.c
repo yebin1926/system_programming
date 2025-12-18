@@ -47,9 +47,9 @@ static int consume_entry(rwlock_t *rw, int num){
 static int join_fifo(rwlock_t *rw, int num, int req_type){
     struct uctx *uctx = (struct uctx *)rw->uctx;
     uctx->next_element++;
-    uctx->slot_table[num % WRITER_RING_SIZE] = num
-    if(req_type == 1) uctx->request_type[num % WRITER_RING_SIZE] = REQ_READ;
-    else if(req_type == 2) uctx->request_type[num % WRITER_RING_SIZE] = REQ_WRITE;
+    uctx->slot_table[num % WRITER_RING_SIZE] = num;
+    if(req_type == 1) {uctx->request_type[num % WRITER_RING_SIZE] = REQ_READ;}
+    else if(req_type == 2) {uctx->request_type[num % WRITER_RING_SIZE] = REQ_WRITE;}
     else return 0;
     return 1;
 }
@@ -280,7 +280,7 @@ int rwlock_write_lock(rwlock_t *rw) //used right before thread starts writing sm
         uctx->oldest_element = head;
 
         if(head == uctx->next_element){ ///if head is the next element, list is empty
-            perror("current writer was not inserted to the fifo correctly")
+            perror("current writer was not inserted to the fifo correctly");
             return -1;
         }
 
@@ -350,13 +350,11 @@ int rwlock_destroy(rwlock_t *rw)
     struct uctx *u_copy = (struct uctx *)rw->uctx;
 
     //TODO: make sure lock is not in use
-    if(rw->current_readers > 0 || rw->current_writers > 0 || uctx->qr_waiters > 0 || uctx->oldest_element != uctx->next_element){
+    if(rw->current_readers > 0 || rw->current_writers > 0 || u_copy->qr_waiters > 0 || u_copy->oldest_element != u_copy->next_element){
         pthread_mutex_unlock(&rw->lock);
         errno = EBUSY;
         return -1;
     }
-
-    free(uctx);
 
     pthread_mutex_unlock(&rw->lock);
     pthread_cond_destroy(&u_copy->cv);
