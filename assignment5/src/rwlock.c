@@ -30,7 +30,7 @@ static int slot_matches(struct uctx *u, int num, int req_type){
     return (u->slot_table[idx] == num && u->request_type[idx] == req_type);
 }
 
-static int get_request_type(struct uctx *u, int num){
+static req_type_t get_request_type(struct uctx *u, int num){
     return u->request_type[num % WRITER_RING_SIZE];
 }
 
@@ -40,7 +40,6 @@ static int consume_entry(rwlock_t *rw, int num){
     }
     rw->uctx->slot_table[num % WRITER_RING_SIZE] = -1;
     rw->uctx->request_type[num % WRITER_RING_SIZE] = REQ_NONE;
-    rw->current_readers++;
     return 1;
 }
 
@@ -50,6 +49,14 @@ static int join_fifo(rwlock_t *rw, int num, int req_type){
     if(req_type == 1) rw->uctx->request_type[num % WRITER_RING_SIZE] = REQ_READ;
     else if(req_type == 2) rw->uctx->request_type[num % WRITER_RING_SIZE] = REQ_WRITE;
     else return 0;
+    return 1;
+}
+
+static int find_valid_head(rwlock_t *rw, int head){
+    while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
+        head++;
+    }
+    return head;
 }
 
 /*--------------------------------------------------------------------*/
@@ -148,6 +155,7 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
             }
             //if this reader is in reader batch, proceed
             if(my_turn <= rw->uctx->read_batch_end && rw->current_writers == 0){
+                rw->current_readers++;
                 if(!consume_entry(rw, my_turn)) {
                     pthread_mutex_unlock(&rw->lock);
                     return -1;
@@ -158,9 +166,10 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
 
             //if no batch is active, repair the head pointer and check if it's the head
             int head = rw->uctx->oldest_element;
-            while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
-                head++;
-            }
+            // while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
+            //     head++;
+            // }
+            head = find_valid_head(rw, head);
             if(head == rw->uctx->next_element){ ///if head is the next element, list is empty
                 pthread_cond_wait(&rw->uctx->cv, &rw->lock);
                 continue;
@@ -175,6 +184,7 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
                     head++;
                 }
                 rw->uctx->oldest_element = head;
+                rw->current_readers++;
                 if(!consume_entry(rw, my_turn)) { //consume the current entry now
                     pthread_mutex_unlock(&rw->lock);
                     return -1;
@@ -246,39 +256,45 @@ int rwlock_write_lock(rwlock_t *rw) //used right before thread starts writing sm
         return -1;
     }
 
-    //TODO: check if there are any active RWs or a QR If so -> wait.
-    if(rw->current_readers > 0 || rw->current_writers > 0 || rw->qr_waiters > 0){
-        pthread_cond_wait(&rw->uctx->cv, &rw->lock);
-    }
-
-    //TODO: Repair the head pointer
-    int head = rw->uctx->oldest_element;
-    while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
-        head++;
-    }
-    if(head == rw->uctx->next_element){ ///if head is the next element, list is empty
-        pthread_cond_wait(&rw->uctx->cv, &rw->lock);
-        continue;
-    }
-
-    //TODO: If this is the head & writer, activate this writer and block others
-    if(my_turn == head && slot_matches(rw->uctx, my_turn, REQ_WRITE)){
-        rw->current_writers = 1;
-        if(!consume_entry(rw, my_turn)){
-            pthread_mutex_unlock(&rw->lock);
-            return -1;
+    while(1){
+        //TODO: check if there are any active RWs or a QR If so -> wait.
+        if(rw->current_readers > 0 || rw->current_writers > 0 || rw->uctx->qr_waiters > 0){
+            pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+            continue;
         }
-        rw->uctx->oldest_element = my_turn+1;
-        rw->uctx->read_batch_end = -1;
-        pthread_mutex_unlock(&rw->lock);
-        return 0;
+
+        //TODO: Repair the head pointer
+        int head = rw->uctx->oldest_element;
+        // while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
+        //     head++;
+        // }
+        head = find_valid_head(rw, head);
+        rw->uctx->oldest_element = head;
+
+        if(head == rw->uctx->next_element){ ///if head is the next element, list is empty
+            pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+            continue;
+        }
+
+        //TODO: If this is the head & writer, activate this writer and block others
+        if(my_turn == head && slot_matches(rw->uctx, my_turn, REQ_WRITE)){
+            rw->current_writers = 1;
+            if(!consume_entry(rw, my_turn)){
+                pthread_mutex_unlock(&rw->lock);
+                return -1;
+            }
+            rw->uctx->oldest_element++;
+            rw->uctx->oldest_element = find_valid_head(rw, rw->uctx->oldest_element);
+            rw->uctx->read_batch_end = -1;
+            pthread_mutex_unlock(&rw->lock);
+            return 0;
+        }
+        //if this != head, wait and retry;
+        pthread_cond_wait(&rw->uctx->cv, &rw->lock);
     }
-    //if this != head, wait and retry;
-    pthread_cond_wait(&rw->uctx->cv, &rw->lock);
 
 /*--------------------------------------------------------------------*/
     pthread_mutex_unlock(&rw->lock);
-    return 0;
 }
 /*--------------------------------------------------------------------*/
 int rwlock_write_unlock(rwlock_t *rw) //used right after thread finishes writing smth
