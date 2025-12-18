@@ -96,6 +96,7 @@ void *handle_client(void *arg)
                 }
                 
                 if(total_used + buf_len > BUF_SIZE){
+                    perror("INVALID CMD\n");
                     client_closed = 1;
                     break;
                 }
@@ -117,7 +118,7 @@ void *handle_client(void *arg)
                 break;
             }
             
-            int serve_int = skvs_serve(ctx, total_buf, total_used, response_buf, (long unsigned int*)&response_len);
+            int serve_int = skvs_serve(ctx, total_buf, line_len, response_buf, (long unsigned int*)&response_len);
             if(serve_int < 0){
                 // perror("Error in skvs_serve()");
                 // exit(EXIT_FAILURE);
@@ -157,7 +158,7 @@ void *handle_client(void *arg)
 /* Signal handler for SIGINT */
 void handle_sigint(int sig)
 {
-    TRACE_PRINT();
+    // TRACE_PRINT();
     printf("\nReceived SIGINT, initiating shutdown...\n");
     g_shutdown = 1;
 }
@@ -286,8 +287,7 @@ int main(int argc, char *argv[])
         pthread_join(workers[j], NULL); //pause the execution of the calling thread until the target thread terminates
         //allows a program to wait for a created thread to complete its task and to retrieve its return value. 
     }
-
-    close(sockfd);
+    
     skvs_destroy(ctx, 1);
 
 
