@@ -167,7 +167,7 @@ int hash_insert(hashtable_t *table, const char *key, const char *value)
     newnode->value_size = strlen(value)+1;
     newnode->next = NULL;
 
-    //TODO: Link it to the bucket
+    //TODO: Link it to the head of bucket
     newnode->next = table->buckets[idx];
     table->buckets[idx] = newnode;
     table->bucket_sizes[idx]++;
@@ -227,14 +227,23 @@ int hash_update(hashtable_t *table, const char *key, const char *value)
     //TODO: Compute bucket and Acquire lock
     int idx = hash(key, table->hash_size);
     rwlock_t *rw = &table->locks[idx];
-    if(rwlock_write_lock(rw) < 0) return -1;
+    if(rwlock_write_lock(rw) < 0) {
+        return -1;
+    }
 
     //TODO: traverse through bucket and update value
     node_t *next_node = table->buckets[idx];
     while(next_node != NULL){
         if(strcmp(next_node->key, key) == 0){
-            next_node->value = strdup(value);
-            if(newnode->value == NULL) return -1;
+            char *temp = strdup(value);
+            if(temp == NULL){ //failure in strdup
+                errno = ENOMEM;
+                rwlock_write_unlock(rw);
+                return -1;
+            }
+            char *old_value = next_node->value;
+            next_node->value = temp;
+            free(old_value);
             next_node->value_size = strlen(value)+1;
             rwlock_write_unlock(rw);
             return 1;
@@ -253,6 +262,40 @@ int hash_delete(hashtable_t *table, const char *key)
     TRACE_PRINT();
 /*--------------------------------------------------------------------*/
     /* edit here */
+    if(table == NULL || key == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    //TODO: Compute bucket and Acquire lock
+    int idx = hash(key, table->hash_size);
+    rwlock_t *rw = &table->locks[idx];
+    if(rwlock_write_lock(rw) < 0) {
+        return -1;
+    }
+
+    //TODO: traverse through bucket and find node to delete
+    node_t *curr_node = table->buckets[idx];
+    node_t *prev_node;
+    while(curr_node != NULL){
+        //if found, delete and change node links and return
+        if(strcmp(curr_node->key, key) == 0){
+            if(prev_node == NULL){ //if it's the first node
+                table->buckets[idx] = curr_node->next;
+            } else {
+                prev_node->next = curr_node->next;
+                free(curr_node);
+            }
+            table->bucket_sizes[idx]--;
+            rwlock_write_unlock(rw);
+            return 1;
+        }
+        prev_node = curr_node;
+        curr_node = curr_node->next;
+    }
+
+    //TODO: release lock and return
+    rwlock_write_unlock(rw);
 
 /*--------------------------------------------------------------------*/
     return 0;
