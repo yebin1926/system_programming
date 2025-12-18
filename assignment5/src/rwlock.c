@@ -44,6 +44,14 @@ static int consume_entry(rwlock_t *rw, int num){
     return 1;
 }
 
+static int join_fifo(rwlock_t *rw, int num, int req_type){
+    rw->uctx->next_element++;
+    rw->uctx->slot_table[num % WRITER_RING_SIZE] = num
+    if(req_type == 1) rw->uctx->request_type[num % WRITER_RING_SIZE] = REQ_READ;
+    else if(req_type == 2) rw->uctx->request_type[num % WRITER_RING_SIZE] = REQ_WRITE;
+    else return 0;
+}
+
 /*--------------------------------------------------------------------*/
 int rwlock_init(rwlock_t *rw, int delay)
 {
@@ -124,10 +132,13 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
         return 0; 
 
     } else { //Normal read mode
-        int my_turn = rw->uctx->next_element;
-        rw->uctx->next_element++;
-        rw->uctx->slot_table[my_turn % WRITER_RING_SIZE] = my_turn;
-        rw->uctx->request_type[my_turn % WRITER_RING_SIZE] = REQ_READ;
+        int my_turn = rw->uctx->next_element; //join the fifo
+        if(!join_fifo(rw, my_turn, REQ_READ)){
+            return -1;
+        }
+        // rw->uctx->next_element++;
+        // rw->uctx->slot_table[my_turn % WRITER_RING_SIZE] = my_turn;
+        // rw->uctx->request_type[my_turn % WRITER_RING_SIZE] = REQ_READ;
 
         while(1){
             //if active writer exists, wait
@@ -137,9 +148,6 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
             }
             //if this reader is in reader batch, proceed
             if(my_turn <= rw->uctx->read_batch_end && rw->current_writers == 0){
-                // rw->uctx->slot_table[my_turn % WRITER_RING_SIZE] = -1;
-                // rw->uctx->request_type[my_turn % WRITER_RING_SIZE] = REQ_NONE;
-                // rw->current_readers += 1;
                 if(!consume_entry(rw, my_turn)) {
                     pthread_mutex_unlock(&rw->lock);
                     return -1;
@@ -148,12 +156,12 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
                 return 0; 
             }
 
-            //if no batch is active, check if it's the head, and who should be in the batch
+            //if no batch is active, repair the head pointer and check if it's the head
             int head = rw->uctx->oldest_element;
             while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
                 head++;
             }
-            if(head == rw->uctx->next_element){
+            if(head == rw->uctx->next_element){ ///if head is the next element, list is empty
                 pthread_cond_wait(&rw->uctx->cv, &rw->lock);
                 continue;
             }
@@ -210,25 +218,6 @@ int rwlock_read_unlock(rwlock_t *rw) //used right after thread finishes reading 
     }
     if(rw->current_readers == 0){ //if there are no active readers, signal oldest element in fifo
         rw->uctx->read_batch_end = -1;
-        // int head = rw->uctx->oldest_element;
-        // while(!slot_matches(rw->uctx, head, -1) && head != rw->uctx->next_element){ //move head forward until it points to valid ticket
-        //     head++;
-        // }
-        // if(rw->uctx->qr_waiters > 0){ //if there are pending QR readers
-        //     pthread_cond_broadcast(&rw->uctx->cv);
-        //     pthread_mutex_unlock(&rw->lock);
-        //     return 0;
-        // }
-        //no pending QR readers
-        // int next_head = rw->uctx->oldest_element+1;
-        
-        //if head is a reader and there are more consecutive readers, increment read_batch_end
-        // while(slot_matches(rw->uctx, head, REQ_READ) && get_request_type(rw->uctx, head) == REQ_READ && slot_matches(rw->uctx, head+1, REQ_READ)){
-        //     // rw->uctx->slot_table[next_head % WRITER_RING_SIZE] = -1;
-        //     // rw->uctx->request_type[next_head % WRITER_RING_SIZE] = REQ_NONE;
-        //     rw->uctx->read_batch_end = head;
-        //     head++;
-        // }
         pthread_cond_broadcast(&rw->uctx->cv);
     }
 
@@ -250,16 +239,45 @@ int rwlock_write_lock(rwlock_t *rw) //used right before thread starts writing sm
     }
     pthread_mutex_lock(&rw->lock);
 
-    //TODO: check if there are any active RWs. If so -> wait.
-    if(rw->current_readers > 0 || rw->current_writers > 0){
+    //TODO: Join FIFO and get a ticket
+    int my_turn = rw->uctx->next_element;
+    if(!join_fifo(rw, my_turn, REQ_WRITE)) {
+        pthread_mutex_unlock(&rw->lock);
+        return -1;
+    }
+
+    //TODO: check if there are any active RWs or a QR If so -> wait.
+    if(rw->current_readers > 0 || rw->current_writers > 0 || rw->qr_waiters > 0){
         pthread_cond_wait(&rw->uctx->cv, &rw->lock);
     }
 
-    //TODO: if no active RW, check if there's a QR. If so, activate that and wait this writer.
+    //TODO: Repair the head pointer
+    int head = rw->uctx->oldest_element;
+    while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
+        head++;
+    }
+    if(head == rw->uctx->next_element){ ///if head is the next element, list is empty
+        pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+        continue;
+    }
 
-    //TODO: If no active RW and no QR, activate this writer and block others
+    //TODO: If this is the head & writer, activate this writer and block others
+    if(my_turn == head && slot_matches(rw->uctx, my_turn, REQ_WRITE)){
+        rw->current_writers = 1;
+        if(!consume_entry(rw, my_turn)){
+            pthread_mutex_unlock(&rw->lock);
+            return -1;
+        }
+        rw->uctx->oldest_element = my_turn+1;
+        rw->uctx->read_batch_end = -1;
+        pthread_mutex_unlock(&rw->lock);
+        return 0;
+    }
+    //if this != head, wait and retry;
+    pthread_cond_wait(&rw->uctx->cv, &rw->lock);
 
 /*--------------------------------------------------------------------*/
+    pthread_mutex_unlock(&rw->lock);
     return 0;
 }
 /*--------------------------------------------------------------------*/
