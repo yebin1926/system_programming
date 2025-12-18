@@ -146,24 +146,26 @@ int hash_insert(hashtable_t *table, const char *key, const char *value)
     }
 
     //TODO: Allocate and initialise new node
-    struct node_t *newnode = malloc(sizeof(node_t));
+    node_t *newnode = malloc(sizeof(node_t));
     if(newnode == NULL){
         errno = ENOMEM;
         rwlock_write_unlock(rw);
         return -1;
     }
+
     newnode->key = strdup(key);
-    newnode->key_size = strlen(key)+1;
-
     newnode->value = strdup(value);
-    newnode->value_size = strlen(value)+1;
-
-    newnode->next = NULL;
-
-    if(newnode->key == NULL || newnode->value || NULL){
+    if(newnode->key == NULL || newnode->value == NULL){
+        errno = ENOMEM;
         rwlock_write_unlock(rw);
+        free(newnode->key);
+        free(newnode->value);
+        free(newnode);
         return -1;
     }
+    newnode->key_size = strlen(key)+1;
+    newnode->value_size = strlen(value)+1;
+    newnode->next = NULL;
 
     //TODO: Link it to the bucket
     newnode->next = table->buckets[idx];
@@ -171,7 +173,6 @@ int hash_insert(hashtable_t *table, const char *key, const char *value)
     table->bucket_sizes[idx]++;
 
     //TODO: Releast lock and return success
-
     rwlock_write_unlock(rw);
 
 /*--------------------------------------------------------------------*/
