@@ -11,10 +11,10 @@ struct uctx //hook that lets you add internal data structures your RW lock needs
 {
     /* free to use */
     pthread_cond_t cv;
-    unsigned int next_element;
-    unsigned int oldest_element;
+    int next_element;
+    int oldest_element;
 
-    unsigned int qr_waiters; //how many quick readers are currently waiting because a writer is active
+    int qr_waiters; //how many quick readers are currently waiting because a writer is active
     int read_batch_end; //the end of the currently granted “reader batch”.
 
     req_type_t request_type[WRITER_RING_SIZE]; //array mapping each element to its request type
@@ -35,25 +35,28 @@ static req_type_t get_request_type(struct uctx *u, int num){
 }
 
 static int consume_entry(rwlock_t *rw, int num){
-    if(!slot_matches(rw->uctx, num, -1)){
+    struct uctx *uctx = (struct uctx *)rw->uctx;
+    if(!slot_matches(uctx, num, -1)){
         return 0;
     }
-    rw->uctx->slot_table[num % WRITER_RING_SIZE] = -1;
-    rw->uctx->request_type[num % WRITER_RING_SIZE] = REQ_NONE;
+    uctx->slot_table[num % WRITER_RING_SIZE] = -1;
+    uctx->request_type[num % WRITER_RING_SIZE] = REQ_NONE;
     return 1;
 }
 
 static int join_fifo(rwlock_t *rw, int num, int req_type){
-    rw->uctx->next_element++;
-    rw->uctx->slot_table[num % WRITER_RING_SIZE] = num
-    if(req_type == 1) rw->uctx->request_type[num % WRITER_RING_SIZE] = REQ_READ;
-    else if(req_type == 2) rw->uctx->request_type[num % WRITER_RING_SIZE] = REQ_WRITE;
+    struct uctx *uctx = (struct uctx *)rw->uctx;
+    uctx->next_element++;
+    uctx->slot_table[num % WRITER_RING_SIZE] = num
+    if(req_type == 1) uctx->request_type[num % WRITER_RING_SIZE] = REQ_READ;
+    else if(req_type == 2) uctx->request_type[num % WRITER_RING_SIZE] = REQ_WRITE;
     else return 0;
     return 1;
 }
 
 static int find_valid_head(rwlock_t *rw, int head){
-    while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
+    struct uctx *uctx = (struct uctx *)rw->uctx;
+    while(head < uctx->next_element && !slot_matches(uctx, head, -1)){ //move head to the right position
         head++;
     }
     return head;
@@ -74,7 +77,6 @@ int rwlock_init(rwlock_t *rw, int delay)
     rw->delay = delay;
 
     if (pthread_mutex_init(&rw->lock, NULL) != 0) {
-        errno = rc;
         return -1;
     }
 
@@ -98,7 +100,7 @@ int rwlock_init(rwlock_t *rw, int delay)
     uctx->read_batch_end = -1;
 
     for(int i=0; i<WRITER_RING_SIZE; i++){
-        uctx->request_type[i] = 0;
+        uctx->request_type[i] = REQ_NONE;
         uctx->slot_table[i] = -1;
     }
 
@@ -119,6 +121,8 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
     }
     pthread_mutex_lock(&rw->lock);
 
+    struct uctx *uctx = (struct uctx *)rw->uctx;
+
     if(quick){ //QREAD mode
         if(rw->current_writers == 0) {//there are no existing writers
             rw->current_readers++; 
@@ -126,20 +130,20 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
             return 0;
         }
         //else, there are existing writers
-        rw->uctx->qr_waiters++;
+        uctx->qr_waiters++;
 
         while(rw->current_writers > 0){ //there is a writer
-            pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+            pthread_cond_wait(&uctx->cv, &rw->lock);
         }
-        rw->uctx->qr_waiters--;
+        uctx->qr_waiters--;
         rw->current_readers++;
 
-        pthread_cond_broadcast(&rw->uctx->cv);
+        pthread_cond_broadcast(&uctx->cv);
         pthread_mutex_unlock(&rw->lock);
         return 0; 
 
     } else { //Normal read mode
-        int my_turn = rw->uctx->next_element; //join the fifo
+        int my_turn = uctx->next_element; //join the fifo
         if(!join_fifo(rw, my_turn, REQ_READ)){
             return -1;
         }
@@ -150,11 +154,11 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
         while(1){
             //if active writer exists, wait
             if(rw->current_writers > 0){
-                pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+                pthread_cond_wait(&uctx->cv, &rw->lock);
                 continue;
             }
             //if this reader is in reader batch, proceed
-            if(my_turn <= rw->uctx->read_batch_end && rw->current_writers == 0){
+            if(my_turn <= uctx->read_batch_end && rw->current_writers == 0){
                 rw->current_readers++;
                 if(!consume_entry(rw, my_turn)) {
                     pthread_mutex_unlock(&rw->lock);
@@ -165,38 +169,38 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
             }
 
             //if no batch is active, repair the head pointer and check if it's the head
-            int head = rw->uctx->oldest_element;
+            int head = uctx->oldest_element;
             // while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
             //     head++;
             // }
             head = find_valid_head(rw, head);
-            if(head == rw->uctx->next_element){ ///if head is the next element, list is empty
-                pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+            if(head == uctx->next_element){ ///if head is the next element, list is empty
+                pthread_cond_wait(&uctx->cv, &rw->lock);
                 continue;
             }
-            rw->uctx->oldest_element = head;
+            uctx->oldest_element = head;
 
-            if(my_turn == head && get_request_type(rw->uctx, head) == REQ_READ){ //if this one IS the head and is READ,
-                rw->uctx->read_batch_end = my_turn;
+            if(my_turn == head && get_request_type(uctx, head) == REQ_READ){ //if this one IS the head and is READ,
+                uctx->read_batch_end = my_turn;
                 //compute and update the last element in batch
-                while(slot_matches(rw->uctx, head, REQ_READ)){
-                    rw->uctx->read_batch_end = head;
+                while(slot_matches(uctx, head, REQ_READ)){
+                    uctx->read_batch_end = head;
                     head++;
                 }
-                rw->uctx->oldest_element = head;
+                uctx->oldest_element = head;
                 rw->current_readers++;
                 if(!consume_entry(rw, my_turn)) { //consume the current entry now
                     pthread_mutex_unlock(&rw->lock);
                     return -1;
                 }
 
-                pthread_cond_broadcast(&rw->uctx->cv);
+                pthread_cond_broadcast(&uctx->cv);
                 pthread_mutex_unlock(&rw->lock);
                 return 0;
             }
 
             //otherwise, not allowed yet
-            pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+            pthread_cond_wait(&uctx->cv, &rw->lock);
         }
     }
 
@@ -216,6 +220,8 @@ int rwlock_read_unlock(rwlock_t *rw) //used right after thread finishes reading 
     sleep(rw->delay);
 /*--------------------------------------------------------------------*/
     /* edit here */
+    struct uctx *uctx = (struct uctx *)rw->uctx;
+
     pthread_mutex_lock(&rw->lock);
     rw->current_readers--;
     if(rw->current_readers < 0){ //if negative value, someone called read_unlock without holding a read lock.
@@ -227,8 +233,8 @@ int rwlock_read_unlock(rwlock_t *rw) //used right after thread finishes reading 
         return 0;
     }
     if(rw->current_readers == 0){ //if there are no active readers, signal oldest element in fifo
-        rw->uctx->read_batch_end = -1;
-        pthread_cond_broadcast(&rw->uctx->cv);
+        uctx->read_batch_end = -1;
+        pthread_cond_broadcast(&uctx->cv);
     }
 
     pthread_mutex_unlock(&rw->lock);
@@ -247,10 +253,12 @@ int rwlock_write_lock(rwlock_t *rw) //used right before thread starts writing sm
         errno = EINVAL;
         return -1;
     }
+    struct uctx *uctx = (struct uctx *)rw->uctx;
+
     pthread_mutex_lock(&rw->lock);
 
     //TODO: Join FIFO and get a ticket
-    int my_turn = rw->uctx->next_element;
+    int my_turn = uctx->next_element;
     if(!join_fifo(rw, my_turn, REQ_WRITE)) {
         pthread_mutex_unlock(&rw->lock);
         return -1;
@@ -258,39 +266,39 @@ int rwlock_write_lock(rwlock_t *rw) //used right before thread starts writing sm
 
     while(1){
         //TODO: check if there are any active RWs or a QR If so -> wait.
-        if(rw->current_readers > 0 || rw->current_writers > 0 || rw->uctx->qr_waiters > 0){
-            pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+        if(rw->current_readers > 0 || rw->current_writers > 0 || uctx->qr_waiters > 0){
+            pthread_cond_wait(&uctx->cv, &rw->lock);
             continue;
         }
 
         //TODO: Repair the head pointer
-        int head = rw->uctx->oldest_element;
+        int head = uctx->oldest_element;
         // while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
         //     head++;
         // }
         head = find_valid_head(rw, head);
-        rw->uctx->oldest_element = head;
+        uctx->oldest_element = head;
 
-        if(head == rw->uctx->next_element){ ///if head is the next element, list is empty
+        if(head == uctx->next_element){ ///if head is the next element, list is empty
             perror("current writer was not inserted to the fifo correctly")
             return -1;
         }
 
         //TODO: If this is the head & writer, activate this writer and block others
-        if(my_turn == head && slot_matches(rw->uctx, my_turn, REQ_WRITE)){
+        if(my_turn == head && slot_matches(uctx, my_turn, REQ_WRITE)){
             rw->current_writers = 1;
             if(!consume_entry(rw, my_turn)){
                 pthread_mutex_unlock(&rw->lock);
                 return -1;
             }
-            rw->uctx->oldest_element++;
-            rw->uctx->oldest_element = find_valid_head(rw, rw->uctx->oldest_element);
-            rw->uctx->read_batch_end = -1;
+            uctx->oldest_element++;
+            uctx->oldest_element = find_valid_head(rw, uctx->oldest_element);
+            uctx->read_batch_end = -1;
             pthread_mutex_unlock(&rw->lock);
             return 0;
         }
         //if this != head, wait and retry;
-        pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+        pthread_cond_wait(&uctx->cv, &rw->lock);
     }
 
 /*--------------------------------------------------------------------*/
@@ -309,16 +317,18 @@ int rwlock_write_unlock(rwlock_t *rw) //used right after thread finishes writing
     sleep(rw->delay);
 /*--------------------------------------------------------------------*/
     /* edit here */
+    struct uctx *uctx = (struct uctx *)rw->uctx;
+
     pthread_mutex_lock(&rw->lock);
     rw->current_writers--;
-    rw->uctx->read_batch_end = -1;
+    uctx->read_batch_end = -1;
 
     if(rw->current_writers > 0 || rw->current_writers < 0){ //if there are still writers left, error.
-        pthread_cond_broadcast(&rw->uctx->cv);
+        pthread_cond_broadcast(&uctx->cv);
         pthread_mutex_unlock(&rw->lock);
         return -1;
     }
-    pthread_cond_broadcast(&rw->uctx->cv);
+    pthread_cond_broadcast(&uctx->cv);
     pthread_mutex_unlock(&rw->lock);
     
 /*--------------------------------------------------------------------*/
@@ -330,7 +340,29 @@ int rwlock_destroy(rwlock_t *rw)
     TRACE_PRINT();
 /*--------------------------------------------------------------------*/
     /* edit here */
+    if (!rw) {
+        errno = EINVAL;
+        return -1;
+    }
 
+    pthread_mutex_lock(&rw->lock);
+
+    struct uctx *u_copy = (struct uctx *)rw->uctx;
+
+    //TODO: make sure lock is not in use
+    if(rw->current_readers > 0 || rw->current_writers > 0 || uctx->qr_waiters > 0 || uctx->oldest_element != uctx->next_element){
+        pthread_mutex_unlock(&rw->lock);
+        errno = EBUSY;
+        return -1;
+    }
+
+    free(uctx);
+
+    pthread_mutex_unlock(&rw->lock);
+    pthread_cond_destroy(&u_copy->cv);
+    pthread_mutex_destroy(&rw->lock);
+
+    free(u_copy);
 /*--------------------------------------------------------------------*/
 
     return 0;
