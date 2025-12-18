@@ -5,7 +5,7 @@
 /*--------------------------------------------------------------------*/
 #include "rwlock.h"
 /*--------------------------------------------------------------------*/
-typedef enum { REQ_READ = 1, REQ_WRITE = 2 } req_type_t;
+typedef enum { REQ_NONE = 0, REQ_READ = 1, REQ_WRITE = 2 } req_type_t;
 
 struct uctx //hook that lets you add internal data structures your RW lock needs, while keeping official rwlock_t definition unchanged
 {
@@ -75,31 +75,68 @@ int rwlock_read_lock(rwlock_t *rw, int quick)
 /*--------------------------------------------------------------------*/
     /* edit here */
     if(rw == NULL){
-        errno = EINTR;
+        errno = EINVAL;
         return -1;
     }
-    rwlock_read_lock(rw);
-    if(quick){ //QREAD mode
-        if(rw->current_readers == 0) rw->current_readers++; //there are no readers
-        else if(rw->current_readers > 0){ //there are readers
-            rw->uctx->qr_waiters++;
-        }
-        while(rw->current_writers > 0){ //there is a writer
-            pthread_cond_wait(rw->uctx->qr_cond);
-        }
-        uctx->quick_read_waiters--;
-        rw->current_readers++:
+    pthread_mutex_lock(&rw->lock);
 
-        rwlock_read_unlock(rw);
+    if(quick){ //QREAD mode
+        if(rw->current_writers == 0) {//there are no existing writers
+            rw->current_readers++; 
+            pthread_mutex_unlock(&rw->lock);
+            return 0;
+        }
+        //else, there are existing writers
+        rw->uctx->qr_waiters++;
+
+        while(rw->current_writers > 0){ //there is a writer
+            pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+        }
+        rw->uctx->qr_waiters--;
+        rw->current_readers++;
+
+        pthread_cond_broadcast(&rw->uctx->cv);
+        pthread_mutex_unlock(&rw->lock);
         return 0; 
+
     } else { //Normal read mode
         int my_turn = rw->uctx->next_element;
         rw->uctx->next_element++;
-        rw->uctx->pending_table[next_element % WRITER_RING_SIZE] = 0;
-        if(rw->current_writers == 0 && my_turn <= uctx->reader_batch_end_ticket){
-            rw->current_readers++;
-            rw->uctx->pending_table[my_turn] = 0;
+        rw->uctx->slot_table[my_turn % WRITER_RING_SIZE] = my_turn;
+        rw->uctx->request_type[my_turn % WRITER_RING_SIZE] = REQ_READ;
 
+        while(1){
+            //if active writer exists, wait
+            if(rw->current_writers > 0){
+                pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+                continue;
+            }
+            //if this reader is in reader batch, proceed
+            if(my_turn <= rw->uctx->read_batch_end && rw->current_writers == 0){
+                rw->uctx->slot_table[my_turn % WRITER_RING_SIZE] = -1;
+                rw->uctx->request_type[my_turn % WRITER_RING_SIZE] = REQ_NONE;
+                rw->current_readers += 1;
+                pthread_mutex_unlock(&rw->lock);
+                return 0; 
+            }
+
+            //if no batch is active, check if it's the head, and who should be in the batch
+            int head = rw->uctx->oldest_element;
+            if(my_turn == head && rw->uctx->request_type[head % WRITER_RING_SIZE] == REQ_READ){
+                int idx = head % WRITER_RING_SIZE;
+                while(rw->uctx->slot_table[idx] == head && rw->uctx->request_type[head % WRITER_RING_SIZE] == REQ_READ){ //find the last element in batch
+                    head++;
+                }
+                head--;
+                rw->uctx->read_batch_end = head;
+                rw->uctx->oldest_element = head+1;
+
+                pthread_cond_broadcast(&rw->uctx->cv);
+                continue;
+            }
+
+            //otherwise, not allowed yet
+            pthread_cond_wait(&rw->uctx->cv, &rw->lock);
         }
     }
 
@@ -118,6 +155,29 @@ int rwlock_read_unlock(rwlock_t *rw)
     sleep(rw->delay);
 /*--------------------------------------------------------------------*/
     /* edit here */
+    pthread_mutex_lock(&rw->lock);
+    rw->current_readers--;
+    if(rw->current_readers > 0){ //other readers still hold the block
+        pthread_mutex_unlock(&rw->lock);
+        return 0;
+    }
+    if(rw->current_readers == 0){ //if there are no readers now, signal oldest element in fifo
+        // if(rw->uctx->qr_waiters > 0){ //if there are pending QR readers
+        //     pthread_cond_broadcast(&rw->uctx->cv);
+        //     return 0;
+        // }
+        pthread_cond_signal(&rw->uctx->cv);
+        // int next_oldest = rw->uctx->oldest_element++;
+        // if(rw->uctx->request_type[next_oldest % WRITER_RING_SIZE] == REQ_READ){
+        //     rwlock_read_lock(rw, 0);
+        // } else if(rw->uctx->request_type[next_oldest % WRITER_RING_SIZE] == REQ_WRITE){
+        //     rwlock_write_lock(rw);
+        // }
+        rw->uctx->slot_table[next_oldest % WRITER_RING_SIZE] = -1;
+        rw->uctx->request_type[next_oldest % WRITER_RING_SIZE] = REQ_NONE;
+    }
+
+    pthread_mutex_unlock(&rw->lock);
 
 /*--------------------------------------------------------------------*/
     return 0;
@@ -126,6 +186,7 @@ int rwlock_read_unlock(rwlock_t *rw)
 int rwlock_write_lock(rwlock_t *rw)
 {
     TRACE_PRINT();
+    //rwlock_write_lock() should refuse to proceed when qr_waiters > 0 (and/or when readers exist)
 /*--------------------------------------------------------------------*/
     /* edit here */
 
