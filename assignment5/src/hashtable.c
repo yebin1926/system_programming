@@ -184,6 +184,30 @@ int hash_read(hashtable_t *table, const char *key, char *dst, int quick)
     TRACE_PRINT();
 /*--------------------------------------------------------------------*/
     /* edit here */
+    //TODO: validation checks
+    if(table == NULL || key == NULL){
+        errno = EINVAL;
+        return -1;
+    }
+    
+    //TODO: Compute bucket and acquire lock
+    int idx = hash(key, table->hash_size);
+    rwlock_t *rw = &table->locks[idx];
+    if(rwlock_read_lock(rw, quick) < 0) return -1;
+
+    //TODO: traverse through table to find key value pair
+    node_t *next_node = table->buckets[idx];
+    while(next_node != NULL){
+        if(strcmp(next_node->key, key) == 0){
+            dst = next_node->value;
+            rwlock_read_unlock(rw);
+            return 1;
+        }
+        next_node = next_node->next;
+    }
+
+    //Release lock
+    rwlock_read_unlock(rw);
 
 /*--------------------------------------------------------------------*/
     return 0;
