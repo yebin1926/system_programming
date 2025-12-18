@@ -272,8 +272,8 @@ int rwlock_write_lock(rwlock_t *rw) //used right before thread starts writing sm
         rw->uctx->oldest_element = head;
 
         if(head == rw->uctx->next_element){ ///if head is the next element, list is empty
-            pthread_cond_wait(&rw->uctx->cv, &rw->lock);
-            continue;
+            perror("current writer was not inserted to the fifo correctly")
+            return -1;
         }
 
         //TODO: If this is the head & writer, activate this writer and block others
@@ -295,6 +295,7 @@ int rwlock_write_lock(rwlock_t *rw) //used right before thread starts writing sm
 
 /*--------------------------------------------------------------------*/
     pthread_mutex_unlock(&rw->lock);
+    return -1;
 }
 /*--------------------------------------------------------------------*/
 int rwlock_write_unlock(rwlock_t *rw) //used right after thread finishes writing smth
