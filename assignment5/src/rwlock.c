@@ -34,6 +34,16 @@ static int get_request_type(struct uctx *u, int num){
     return u->request_type[num % WRITER_RING_SIZE];
 }
 
+static int consume_entry(rwlock_t *rw, int num){
+    if(!slot_matches(rw->uctx, num, -1)){
+        return 0;
+    }
+    rw->uctx->slot_table[num % WRITER_RING_SIZE] = -1;
+    rw->uctx->request_type[num % WRITER_RING_SIZE] = REQ_NONE;
+    rw->current_readers++;
+    return 1;
+}
+
 /*--------------------------------------------------------------------*/
 int rwlock_init(rwlock_t *rw, int delay)
 {
@@ -127,32 +137,45 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
             }
             //if this reader is in reader batch, proceed
             if(my_turn <= rw->uctx->read_batch_end && rw->current_writers == 0){
-                rw->uctx->slot_table[my_turn % WRITER_RING_SIZE] = -1;
-                rw->uctx->request_type[my_turn % WRITER_RING_SIZE] = REQ_NONE;
-                rw->current_readers += 1;
+                // rw->uctx->slot_table[my_turn % WRITER_RING_SIZE] = -1;
+                // rw->uctx->request_type[my_turn % WRITER_RING_SIZE] = REQ_NONE;
+                // rw->current_readers += 1;
+                if(!consume_entry(rw, my_turn)) {
+                    pthread_mutex_unlock(&rw->lock);
+                    return -1
+                };
                 pthread_mutex_unlock(&rw->lock);
                 return 0; 
             }
 
             //if no batch is active, check if it's the head, and who should be in the batch
             int head = rw->uctx->oldest_element;
-            while(head < rw->uctx->next_element && slot_matches(rw->uctx, head, -1)){ //move head to the right position
+            while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
                 head++;
                 if(head == next_element){
                     pthread_cond_wait(&rw->uctx->cv, &rw->lock);
                     continue;
                 }
             }
+            rw->uctx->oldest_element = head;
+
             if(my_turn == head && get_request_type(rw->uctx, head) == REQ_READ){ //if this one IS the head and is READ,
                 rw->uctx->read_batch_end = my_turn;
-                while(slot_matches(rw, head, REQ_READ) && get_request_type(rw->uctx, head+1) == REQ_READ && slot_matches(rw->uctx, head+1, REQ_READ) ){ //compute the last element in batch
+                //compute and update the last element in batch
+                while(slot_matches(rw->uctx, head, REQ_READ)){
                     rw->uctx->read_batch_end = head;
                     head++;
                 }
+                head--;
                 rw->uctx->oldest_element = head;
+                if(!consume_entry(rw, my_turn)) {
+                    pthread_mutex_unlock(&rw->lock);
+                    return -1;
+                }
 
                 pthread_cond_broadcast(&rw->uctx->cv);
-                continue;
+                pthread_mutex_unlock(&rw->lock);
+                return 0;
             }
 
             //otherwise, not allowed yet
@@ -161,6 +184,7 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
     }
 
 /*--------------------------------------------------------------------*/
+    pthread_mutex_unlock(&rw->lock);
     return 0;
 }
 /*--------------------------------------------------------------------*/
@@ -186,16 +210,16 @@ int rwlock_read_unlock(rwlock_t *rw) //used right after thread finishes reading 
         return 0;
     }
     if(rw->current_readers == 0){ //if there are no active readers, signal oldest element in fifo
-        rw->uctx->read_batch_end = rw->uctx->oldest_element;
+        rw->uctx->read_batch_end = -1;
         // int head = rw->uctx->oldest_element;
         // while(!slot_matches(rw->uctx, head, -1) && head != rw->uctx->next_element){ //move head forward until it points to valid ticket
         //     head++;
         // }
-        if(rw->uctx->qr_waiters > 0){ //if there are pending QR readers
-            pthread_cond_broadcast(&rw->uctx->cv);
-            pthread_mutex_unlock(&rw->lock);
-            return 0;
-        }
+        // if(rw->uctx->qr_waiters > 0){ //if there are pending QR readers
+        //     pthread_cond_broadcast(&rw->uctx->cv);
+        //     pthread_mutex_unlock(&rw->lock);
+        //     return 0;
+        // }
         //no pending QR readers
         // int next_head = rw->uctx->oldest_element+1;
         
@@ -228,6 +252,9 @@ int rwlock_write_lock(rwlock_t *rw) //used right before thread starts writing sm
     pthread_mutex_lock(&rw->lock);
 
     //TODO: check if there are any active RWs. If so -> wait.
+    if(rw->current_readers > 0 || rw->current_writers > 0){
+        pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+    }
 
     //TODO: if no active RW, check if there's a QR. If so, activate that and wait this writer.
 
