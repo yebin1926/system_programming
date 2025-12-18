@@ -129,31 +129,41 @@ int hash_insert(hashtable_t *table, const char *key, const char *value)
     }
 
     //TODO: compute which bucket to use
-    int bucket_idx = hash(key, table->hash_size);
+    int idx = hash(key, table->hash_size);
 
     //TODO: Acquire bucket's write lock
-    struct rwlock_t *rw = &table->locks[idx];
+    rwlock_t *rw = &table->locks[idx];
     if(rwlock_write_lock(rw) < 0) return -1;
 
     //TODO: check for collision (if key alr exists)
-    for(int i=0; i<table->bucket_sizes[idx]; i++){
-        if(key == table->buckets[idx][i]->key){
+    node_t *next_node = table->buckets[idx];
+    while(next_node != NULL){
+        if(strcmp(key, next_node->key) == 0){
             rwlock_write_unlock(rw);
             return 0;
         }
+        next_node = next_node->next;
     }
 
     //TODO: Allocate and initialise new node
-    struct node_t *newnode = malloc(sizeof(struct *node_t));
+    struct node_t *newnode = malloc(sizeof(node_t));
     if(newnode == NULL){
         errno = ENOMEM;
+        rwlock_write_unlock(rw);
         return -1;
     }
-    newnode->key = key;
-    newnode->key_size = strlen(key);
-    newnode->value = valye;
-    newnode->value_size = strlen(value);
+    newnode->key = strdup(key);
+    newnode->key_size = strlen(key)+1;
+
+    newnode->value = strdup(value);
+    newnode->value_size = strlen(value)+1;
+
     newnode->next = NULL;
+
+    if(newnode->key == NULL || newnode->value || NULL){
+        rwlock_write_unlock(rw);
+        return -1;
+    }
 
     //TODO: Link it to the bucket
     newnode->next = table->buckets[idx];
