@@ -309,7 +309,18 @@ int rwlock_write_unlock(rwlock_t *rw) //used right after thread finishes writing
     sleep(rw->delay);
 /*--------------------------------------------------------------------*/
     /* edit here */
+    pthread_mutex_lock(&rw->lock);
+    rw->current_writers--;
+    rw->uctx->read_batch_end = -1;
 
+    if(rw->current_writers > 0 || rw->current_writers < 0){ //if there are still writers left, error.
+        pthread_cond_broadcast(&rw->uctx->cv);
+        pthread_mutex_unlock(&rw->lock);
+        return -1;
+    }
+    pthread_cond_broadcast(&rw->uctx->cv);
+    pthread_mutex_unlock(&rw->lock);
+    
 /*--------------------------------------------------------------------*/
     return 0;
 }
