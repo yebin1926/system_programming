@@ -276,7 +276,7 @@ int hash_delete(hashtable_t *table, const char *key)
 
     //TODO: traverse through bucket and find node to delete
     node_t *curr_node = table->buckets[idx];
-    node_t *prev_node;
+    node_t *prev_node = NULL;
     while(curr_node != NULL){
         //if found, delete and change node links and return
         if(strcmp(curr_node->key, key) == 0){
@@ -284,8 +284,10 @@ int hash_delete(hashtable_t *table, const char *key)
                 table->buckets[idx] = curr_node->next;
             } else {
                 prev_node->next = curr_node->next;
-                free(curr_node);
             }
+            free(curr_node->key);
+            free(curr_node->value);
+            free(curr_node);
             table->bucket_sizes[idx]--;
             rwlock_write_unlock(rw);
             return 1;
