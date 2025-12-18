@@ -142,7 +142,7 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
                 // rw->current_readers += 1;
                 if(!consume_entry(rw, my_turn)) {
                     pthread_mutex_unlock(&rw->lock);
-                    return -1
+                    return -1;
                 };
                 pthread_mutex_unlock(&rw->lock);
                 return 0; 
@@ -152,10 +152,10 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
             int head = rw->uctx->oldest_element;
             while(head < rw->uctx->next_element && !slot_matches(rw->uctx, head, -1)){ //move head to the right position
                 head++;
-                if(head == next_element){
-                    pthread_cond_wait(&rw->uctx->cv, &rw->lock);
-                    continue;
-                }
+            }
+            if(head == rw->uctx->next_element){
+                pthread_cond_wait(&rw->uctx->cv, &rw->lock);
+                continue;
             }
             rw->uctx->oldest_element = head;
 
@@ -166,9 +166,8 @@ int rwlock_read_lock(rwlock_t *rw, int quick) //used right before thread starts 
                     rw->uctx->read_batch_end = head;
                     head++;
                 }
-                head--;
                 rw->uctx->oldest_element = head;
-                if(!consume_entry(rw, my_turn)) {
+                if(!consume_entry(rw, my_turn)) { //consume the current entry now
                     pthread_mutex_unlock(&rw->lock);
                     return -1;
                 }
